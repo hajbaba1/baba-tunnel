@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# Environment and local configs
+.env
+*.local
+
+# Runtime state and logs
+previous-proxy-state.json
+*.log
+
+# External binaries (excluded from git)
+core/*.exe
+core/*.dat
+bin/
+dist/

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl" data-appearance="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fenix VPN</title>
+  <link rel="stylesheet" href="/assets/phosphor/regular/style.css">
+  <link rel="stylesheet" href="/assets/phosphor/bold/style.css">
+  <link rel="stylesheet" href="/assets/phosphor/fill/style.css">
+  <link rel="stylesheet" href="/ui/tokens.css">
+  <link rel="stylesheet" href="/ui/components.css">
+  <link rel="stylesheet" href="/ui/page-kit.css">
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--mv-desk, #141518);
+      font-family: var(--mv-font);
+      color: var(--mv-label);
+      user-select: none;
+    }
+    #ls-fenix {
+      width: 100%;
+      height: 100%;
+      display: flex;
+    }
+    .fnx-wrap {
+      width: 100%;
+      height: 100%;
+    }
+    /* Minimal toast overlay */
+    #fenix-toast-container {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      pointer-events: none;
+    }
+    .fenix-toast {
+      background: rgba(30, 31, 35, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 8px;
+      padding: 10px 18px;
+      color: #fff;
+      font-size: 13px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+      backdrop-filter: blur(8px);
+      animation: fadeInToast 0.2s ease-out;
+    }
+    @keyframes fadeInToast {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    /* Simple dialog modal */
+    dialog.fenix-dialog {
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 12px;
+      background: var(--mv-surface, #1E1F22);
+      color: var(--mv-label, #fff);
+      padding: 20px;
+      max-width: 400px;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(20px);
+    }
+    dialog.fenix-dialog::backdrop {
+      background: rgba(0, 0, 0, 0.5);
+    }
+    dialog.fenix-dialog h3 {
+      margin: 0 0 10px;
+      font-size: 15px;
+      font-weight: 600;
+    }
+    dialog.fenix-dialog p {
+      margin: 0 0 18px;
+      font-size: 13px;
+      line-height: 1.7;
+      color: var(--mv-label-2, rgba(255,255,255,0.7));
+      white-space: pre-wrap;
+    }
+    dialog.fenix-dialog .actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div id="ls-fenix"></div>
+  <div id="fenix-toast-container"></div>
+
+  <dialog id="fenix-modal" class="fenix-dialog">
+    <h3 id="fenix-modal-title"></h3>
+    <p id="fenix-modal-msg"></p>
+    <div class="actions">
+      <button type="button" class="mv-btn" id="fenix-modal-cancel">انصراف</button>
+      <button type="button" class="mv-btn mv-btn--primary" id="fenix-modal-confirm">تأیید</button>
+    </div>
+  </dialog>
+
+  <script>
+    // Standalone minimal modal implementation
+    window.uiModal = {
+      confirm: function(options) {
+        return new Promise((resolve) => {
+          const dialog = document.getElementById('fenix-modal');
+          const title = document.getElementById('fenix-modal-title');
+          const msg = document.getElementById('fenix-modal-msg');
+          const cancelBtn = document.getElementById('fenix-modal-cancel');
+          const confirmBtn = document.getElementById('fenix-modal-confirm');
+
+          title.textContent = options.title || '';
+          msg.textContent = options.message || '';
+          confirmBtn.textContent = options.confirmLabel || 'تأیید';
+          cancelBtn.textContent = options.cancelLabel || 'انصراف';
+
+          const onConfirm = () => { cleanup(); resolve(true); };
+          const onCancel = () => { cleanup(); resolve(false); };
+          const cleanup = () => {
+            confirmBtn.removeEventListener('click', onConfirm);
+            cancelBtn.removeEventListener('click', onCancel);
+            dialog.close();
+          };
+
+          confirmBtn.addEventListener('click', onConfirm);
+          cancelBtn.addEventListener('click', onCancel);
+          dialog.showModal();
+        });
+      }
+    };
+
+    // Standalone toast implementation
+    window.toast = function(msg) {
+      const container = document.getElementById('fenix-toast-container');
+      const toast = document.createElement('div');
+      toast.className = 'fenix-toast';
+      toast.textContent = msg;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.3s ease';
+        setTimeout(() => toast.remove(), 300);
+      }, 3500);
+    };
+
+    window.refreshSystemProxy = function() {};
+  </script>
+  <script src="/components/fenix.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      if (typeof window.initFenixModule === 'function') {
+        window.initFenixModule();
+      }
+    });
+  </script>
+</body>
+</html>

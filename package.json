@@ -1,0 +1,23 @@
+{
+  "name": "fenix-vpn",
+  "version": "1.0.0",
+  "description": "Fenix VPN Standalone — Powered by Mozilla VPN MASQUE proxy infrastructure and Xray-core",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "preview": "node server.js --port=3000",
+    "test:imports": "node scripts/verify-isolation.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "socks-proxy-agent": "^10.1.0"
+  },
+  "devDependencies": {
+    "electron": "^34.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "type": "commonjs",
+  "license": "SEE LICENSE IN LICENSE"
+}
