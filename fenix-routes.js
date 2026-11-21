@@ -1,6 +1,6 @@
 // --- fenix-routes.js — Dedicated Express routes for Fenix Standalone ---
 //
-// Extracts strictly the /api/fenix/* routes from MLMVPN's server.js.
+// Standalone routing implementation for Fenix VPN.
 // Connects fenix-session directly to xray-runner, health-check, and system-proxy.
 // Includes strict input validation on all route parameters.
 
@@ -83,9 +83,9 @@ function createFenixRouter(eventEmitter) {
                 : e.code === 'INVALID_INPUT' ? 400
                 : 400;
             res.status(status).json({
-                error: e.message || 'Error occurred',
+                error: fx.sanitizeLog(e.message || 'Error occurred'),
                 code: e.code || null,
-                host: e.host || null,
+                host: e.host ? fx.sanitizeLog(e.host) : null,
             });
         }
     };

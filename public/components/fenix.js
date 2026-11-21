@@ -30,8 +30,9 @@
         { id: 'coverage', label: 'پوشش', icon: 'ph-fill ph-globe-hemisphere-east', tint: 'var(--mv-orange)' },
         { id: 'guide', label: 'راهنما', icon: 'ph-fill ph-question', tint: 'var(--mv-gray)' },
         { id: 'log', label: 'گزارش', icon: 'ph-fill ph-terminal-window', tint: 'var(--mv-gray)' },
+        { id: 'about', label: 'درباره', icon: 'ph-fill ph-info', tint: 'var(--mv-accent)' },
     ];
-    const SEC_TITLE = { connect: 'اتصال', accounts: 'حساب‌ها', region: 'کشور خروج', coverage: 'پوشش', guide: 'راهنما', log: 'گزارش' };
+    const SEC_TITLE = { connect: 'اتصال', accounts: 'حساب‌ها', region: 'کشور خروج', coverage: 'پوشش', guide: 'راهنما', log: 'گزارش', about: 'درباره' };
 
     /**
      * How much of the machine FENIX covers. The same three words سایفون and تور use, because it is
@@ -344,6 +345,8 @@
           </div>
         </div>
       </div>
+
+      <div class="mv-eng-sec" data-sec="about"><div class="mv-form" id="fnx-about"></div></div>
 
     </div>
 
@@ -1035,6 +1038,29 @@
 </ul>`);
     }
 
+    function renderAbout() {
+        const host = $('fnx-about');
+        if (!host) return;
+        host.innerHTML = `
+          <div class="mv-form-section is-wide">
+            <div class="mv-form-header">درباره برنامه</div>
+            <div class="mv-form-group" style="padding:16px 18px; font-size:13px; line-height:1.9;">
+              <p style="font-weight:700; font-size:14.5px; margin:0 0 8px; color:var(--mv-label);">Fenix Standalone VPN v1.0.0</p>
+              <p style="margin:0 0 10px; color:var(--mv-label-2);">
+                Based on MLMVPN for Windows<br>
+                <a href="https://github.com/mlmvpn/mlmvpn_windows" target="_blank" style="color:var(--mv-accent); text-decoration:underline; font-family:var(--mv-font-tech);">https://github.com/mlmvpn/mlmvpn_windows</a>
+              </p>
+              <p style="margin:0 0 10px; color:var(--mv-label-2);">
+                Original Copyright &copy; 2026 Ehsan (MLMVPN). All rights reserved.<br>
+                Licensed under the MLMVPN Attribution License 1.0.
+              </p>
+              <div style="margin-top:14px; padding-top:10px; border-top:1px solid var(--mv-sep); color:var(--mv-label-3); font-size:12px;">
+                این کلاینت مستقل بر پایهٔ پروژهٔ MLMVPN توسعه یافته و از پروتکل Fastly MASQUE موزیلا و هستهٔ Xray-core بهره می‌برد.
+              </div>
+            </div>
+          </div>`;
+    }
+
     function renderLog() {
         const pre = $('fnx-log');
         if (!pre) return;
@@ -1102,6 +1128,7 @@
         else if (st.sec === 'coverage') renderCoverage();
         else if (st.sec === 'guide') renderGuide();
         else if (st.sec === 'log') renderLog();
+        else if (st.sec === 'about') renderAbout();
         if (typeof window.routeChipsPaint === 'function') window.routeChipsPaint();
     }
 

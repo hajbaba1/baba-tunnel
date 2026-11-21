@@ -1,15 +1,7 @@
 /* =====================================================================
-   MLMVPN design tokens — the single source of the app's look.
+   Fenix Standalone Design Tokens — Distinctive theme for Fenix VPN.
    ---------------------------------------------------------------------
-   macOS-inspired, RTL-first. Two appearances only: dark and light.
-   <html data-appearance="dark|light"> is set before first paint by
-   ui/appearance-boot.js; nothing else in the app may hard-code a colour.
-
-   Labels, fills and separators are TRANSLUCENT (as on macOS), so the same
-   token reads correctly on an opaque surface and on glass.
-
-   The system colours are Apple's own values — the same ones the Android
-   app uses in HomeDestinations.kt — so an icon has one colour everywhere.
+   Modern slate & flame palette, RTL-first. Dark and light appearances.
    ===================================================================== */
 
 /* ── Type: IRANSansX ships with the app (FaNum digits). ── */
@@ -99,17 +91,17 @@
 :root,
 html[data-appearance="dark"] {
   color-scheme: dark;
-  --mv-desk: #141518;
-  --mv-window: #2A2B2F;
-  --mv-surface: #1E1F22;
-  --mv-surface-2: #26272B;
-  --mv-surface-3: #2F3035;
-  --mv-surface-4: #3A3B41;
+  --mv-desk: #0E1015;
+  --mv-window: #16181F;
+  --mv-surface: #181B22;
+  --mv-surface-2: #20242E;
+  --mv-surface-3: #292E3B;
+  --mv-surface-4: #343A4A;
 
-  --mv-label: rgba(255, 255, 255, .88);
-  --mv-label-2: rgba(255, 255, 255, .60);
-  --mv-label-3: rgba(255, 255, 255, .38);
-  --mv-label-4: rgba(255, 255, 255, .22);
+  --mv-label: rgba(255, 255, 255, .92);
+  --mv-label-2: rgba(255, 255, 255, .65);
+  --mv-label-3: rgba(255, 255, 255, .42);
+  --mv-label-4: rgba(255, 255, 255, .24);
   --mv-fill: rgba(255, 255, 255, .06);
   --mv-fill-2: rgba(255, 255, 255, .10);
   --mv-fill-3: rgba(255, 255, 255, .15);
@@ -117,11 +109,11 @@ html[data-appearance="dark"] {
   --mv-sep-2: rgba(255, 255, 255, .16);
   --mv-sep-3: rgba(255, 255, 255, .24);
 
-  --mv-accent: #0A84FF;
-  --mv-accent-2: #3395FF;
-  --mv-accent-soft: rgba(10, 132, 255, .20);
-  --mv-accent-ring: rgba(10, 132, 255, .50);
-  --mv-accent-rgb: 10, 132, 255;
+  --mv-accent: #FF5A1F;
+  --mv-accent-2: #FF7A00;
+  --mv-accent-soft: rgba(255, 90, 31, .20);
+  --mv-accent-ring: rgba(255, 90, 31, .50);
+  --mv-accent-rgb: 255, 90, 31;
   --mv-on-accent: #FFFFFF;
 
   --mv-blue: #0A84FF;   --mv-green: #30D158;  --mv-orange: #FF9F0A; --mv-red: #FF453A;  --mv-yellow: #FFD60A;

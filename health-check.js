@@ -1,6 +1,6 @@
 // --- health-check.js — Clean SOCKS proxy health checker for Fenix Standalone ---
 //
-// Replaces exit-proxies.verify from MLMVPN with a minimal, focused verification probe.
+// Minimal, focused verification probe for Fenix Standalone.
 // Performs an HTTP trace through 127.0.0.1:10808 (Xray's SOCKS port) to confirm outbound connectivity.
 
 'use strict';

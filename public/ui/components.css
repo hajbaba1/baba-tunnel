@@ -1,7 +1,7 @@
 /* =====================================================================
-   MLMVPN components — every new piece of UI is built from these.
-   They read tokens only (ui/tokens.css); none of them names a colour.
-   Namespaced .mv-* so nothing collides with the classes panels already use.
+   Fenix Standalone UI Components — tailored for Fenix VPN.
+   ---------------------------------------------------------------------
+   RTL-first components consuming Fenix design tokens.
    ===================================================================== */
 
 /* ── Technical values: IPs, ports, hosts, UUIDs, protocol names, config strings.
