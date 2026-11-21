@@ -678,6 +678,9 @@
     <div class="fnx-progress-track">
       <div class="fnx-progress-fill" id="fnx-quota-fill" style="width:100%;"></div>
     </div>
+    <div style="text-align:center; font-size:10.5px; color:var(--fnx-text-3); margin-top:2px;">
+      طراحی و توسعه : <strong style="color:var(--fnx-flame-1); font-weight:600;">Hajbaba</strong>
+    </div>
   </footer>
 
   <!-- Server Selection Sheet -->
@@ -745,7 +748,8 @@
         <!-- About Pane -->
         <div class="fnx-dpane" id="fnx-dpane-about">
           <div class="fnx-sub-card" style="line-height:1.8;font-size:12px;">
-            <p style="font-weight:700; font-size:14px; margin-bottom:6px; color:var(--fnx-text-1);">Fenix Standalone VPN v1.0.0</p>
+            <p style="font-weight:700; font-size:14px; margin-bottom:2px; color:var(--fnx-text-1);">Fenix Standalone VPN v1.0.0</p>
+            <p style="font-size:12px; color:var(--fnx-flame-1); font-weight:600; margin-bottom:10px;">طراحی و توسعه : Hajbaba</p>
             <p style="margin-bottom:8px; color:var(--fnx-text-2);">
               Based on MLMVPN for Windows<br>
               <a href="https://github.com/mlmvpn/mlmvpn_windows" target="_blank" style="color:var(--fnx-flame-1); text-decoration:underline;">https://github.com/mlmvpn/mlmvpn_windows</a>
