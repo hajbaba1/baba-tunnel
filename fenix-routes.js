@@ -14,6 +14,7 @@ const healthCheck = require('./health-check');
 const systemProxy = require('./system-proxy');
 
 const ALLOWED_CHALLENGE_HOSTS = new Set([
+    '',
     'api.accounts.firefox.com',
     'accounts.firefox.com',
     'oauth.accounts.firefox.com',
