@@ -32,4 +32,12 @@ To run only the local web server and preview the interface:
 ```bash
 npm run preview
 ```
-> **Warning**: Do not execute network mutations directly without testing local proxy states. Standalone mode exclusively uses SOCKS/HTTP local proxies and Windows proxy settings, with rollback on exit.
+## 5. Building Windows Installers (electron-builder)
+To compile the standalone Windows installer (`.exe`) and portable single-file binary:
+```bash
+npm run dist
+```
+The output binaries will be created in `dist/`:
+- **NSIS Installer:** `dist/Fenix VPN Setup 1.0.0.exe`
+- **Portable Binary:** `dist/Fenix VPN 1.0.0.exe`
+- **Unpacked Folder:** `dist/win-unpacked/`

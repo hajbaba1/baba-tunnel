@@ -36,6 +36,10 @@ function getBinaryPath() {
     const cwdCore = path.join(process.cwd(), 'core', 'xray.exe');
     if (fs.existsSync(cwdCore)) return cwdCore;
 
+    // 4. User AppData directory (for installed desktop packages)
+    const appData = path.join(process.env.APPDATA || '', 'fenix-vpn', 'core', 'xray.exe');
+    if (fs.existsSync(appData)) return appData;
+
     throw new Error('xray.exe binary was not found. Please place xray.exe in "core/xray.exe" or configure FENIX_XRAY_PATH in .env (see docs/BUILD.md).');
 }
 

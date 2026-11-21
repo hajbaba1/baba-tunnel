@@ -106,6 +106,10 @@ for (const devDep of declaredDevDeps) {
         if (devDep === 'electron' && pkg.scripts && pkg.scripts.start && pkg.scripts.start.includes('electron')) {
             continue;
         }
+        // electron-builder is used via CLI in build/dist scripts
+        if (devDep === 'electron-builder' && pkg.scripts && (pkg.scripts.dist || pkg.scripts.build)) {
+            continue;
+        }
         errors.push(`[UNUSED_DEV_DEPENDENCY] '${devDep}' is in devDependencies but never used`);
     }
 }
