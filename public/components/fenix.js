@@ -161,9 +161,13 @@
     const spin = () => '<i class="mv-spin-ring" aria-hidden="true"></i>';
 
     async function api(p, body) {
-        const r = await fetch('/api/' + p, body !== undefined
-            ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
-            : undefined);
+        const headers = { 'x-fenix-token': window.__FENIX_TOKEN__ || '' };
+        if (body !== undefined) headers['Content-Type'] = 'application/json';
+        const r = await fetch('/api/' + p, {
+            method: body !== undefined ? 'POST' : 'GET',
+            headers,
+            body: body !== undefined ? JSON.stringify(body) : undefined,
+        });
         const d = await r.json().catch(() => ({}));
         if (!r.ok || d.error) {
             const e = new Error(d.error || `برنامه جواب نداد (کد ${fa(r.status)}).`);

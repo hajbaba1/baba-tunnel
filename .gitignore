@@ -8,6 +8,10 @@ node_modules/
 # Runtime state and logs
 previous-proxy-state.json
 *.log
+*.log.*
+*.tmp
+accounts.json*
+data/
 
 # External binaries (excluded from git)
 core/*.exe

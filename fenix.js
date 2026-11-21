@@ -110,15 +110,36 @@ function load() {
 }
 function save(s) { fs.mkdirSync(path.dirname(FILE), { recursive: true }); fs.writeFileSync(FILE + '.tmp', JSON.stringify(s, null, 2)); fs.renameSync(FILE + '.tmp', FILE); return s; }
 /**
- * ~/.mlmvpn/fenix.log: which of Mozilla's endpoints answered what, and through whom (Node, the
+ * %APPDATA%/fenix-vpn/fenix.log: which of Mozilla's endpoints answered what, and through whom (Node, the
  * browser, Mozilla's page) — the record a «it asks for the check again» report is read from. Hosts,
  * paths and status codes only: never a token, a session or an e-mail. Kept under 256 KB.
  */
 const LOG_FILE = path.join(path.dirname(FILE), 'fenix.log');
+
+/**
+ * Sanitizes any log line or error message to guarantee credentials and tokens never leak.
+ */
+function sanitizeLog(text) {
+    if (!text) return '';
+    let str = String(text);
+    // Redact Bearer tokens (e.g. Bearer xyz -> Bearer [REDACTED])
+    str = str.replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [REDACTED]');
+    // Redact Proxy-Authorization and Authorization if not using Bearer
+    str = str.replace(/(Proxy-Authorization\s*:\s*)(?!Bearer\b)\S+/gi, '$1[REDACTED]');
+    str = str.replace(/(Authorization\s*:\s*)(?!Bearer\b)\S+/gi, '$1[REDACTED]');
+    // Redact JWT tokens
+    str = str.replace(/\b[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\b/g, '[REDACTED_JWT]');
+    // Redact emails
+    str = str.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[REDACTED_EMAIL]');
+    // Redact password, code, token, authPW key-values
+    str = str.replace(/(["']?(?:password|passwd|code|secret|authPW|token)["']?\s*[:=]\s*)["']?[^"'\s,]+["']?/gi, '$1"[REDACTED]"');
+    return str;
+}
+
 function note(line) {
     try {
         try { if (fs.statSync(LOG_FILE).size > 256 * 1024) fs.renameSync(LOG_FILE, LOG_FILE + '.1'); } catch (e) { /* first line */ }
-        fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${line}\n`);
+        fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${sanitizeLog(line)}\n`);
     } catch (e) { /* a diary, never a failure */ }
 }
 /** Change one account in the file, if it is still there. */
@@ -1221,7 +1242,7 @@ module.exports = {
     authPw, hkdf, hawkCredentials, hawkHeader, claims, parseServers, config, outbound, exhausted, siteOf,
     signIn, verifyCode, cancelSignIn, signInWithSession, accessToken, pass, pickAccount, refreshQuotas, servers, pingAll, handshakeMs,
     findTarget, prepare, setHttp1, noteExit, challenge, signOut, status, FenixError, FILE, MIN_LEFT_BYTES, READ_PAGE_JS,
-    checkPage, settle, pageWork, pageHasWork, checkWindow, REFRESH_URLS, PAGE_REFRESH_URLS, LOG_FILE,
+    checkPage, settle, pageWork, pageHasWork, checkWindow, REFRESH_URLS, PAGE_REFRESH_URLS, LOG_FILE, sanitizeLog,
     solver, WEBCHANNEL_HOOK_JS, WEBCHANNEL_LOGIN_URL,
     _setFetch: (f) => { fetchImpl = f; }, _setNet: (n) => { net = Object.assign({ ping: handshakeMs, lookup: lookupAll }, n || {}); },
     _setBrowser: (f) => { browserFetch = f || browserFetchReal; browserStandIn = !!f; },

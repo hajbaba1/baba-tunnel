@@ -6,7 +6,8 @@
   "scripts": {
     "start": "electron .",
     "preview": "node server.js --port=3000",
-    "test:imports": "node scripts/verify-isolation.js"
+    "test": "node --test tests/**/*.test.js",
+    "test:imports": "node scripts/check-imports.js"
   },
   "dependencies": {
     "express": "^4.21.0",

@@ -3,7 +3,10 @@
 // Secures tokens at rest using Windows DPAPI (Data Protection API) scoped to the current user.
 // Uses Electron's native `safeStorage` when running in Electron, and falls back to PowerShell
 // DPAPI (ConvertTo-SecureString / ConvertFrom-SecureString) in pure Node/CLI environments.
-// No plaintext tokens or keys are ever stored on disk or exposed on command lines.
+//
+// SECURITY REQUIREMENT:
+// If secure encryption is not available, protectAsync MUST throw an error and NEVER
+// store credentials in plaintext or base64 plaintext.
 
 'use strict';
 
@@ -95,11 +98,12 @@ async function protectAsync(plain) {
             return DPAPI_PREFIX + hex;
         }
     } catch (e) {
-        // Fallback if DPAPI is not available
+        // DPAPI failed
     }
 
-    // Fallback: Base64
-    return 'plain:' + Buffer.from(str, 'utf8').toString('base64');
+    // MANDATORY SECURITY REQUIREMENT:
+    // Throw error if hardware/OS secure encryption is unavailable. Never write plaintext.
+    throw new Error('Secure storage unavailable: encryption via safeStorage and Windows DPAPI failed. Refusing to store unencrypted credentials.');
 }
 
 async function unprotectAsync(stored) {
@@ -114,9 +118,10 @@ async function unprotectAsync(stored) {
                 const buf = Buffer.from(s.slice(SAFE_PREFIX.length), 'base64');
                 return ss.decryptString(buf);
             } catch (err) {
-                return '';
+                throw new Error('Failed to decrypt safeStorage credential');
             }
         }
+        throw new Error('safeStorage encryption unavailable for decryption');
     }
 
     // 2. Windows DPAPI (PowerShell)
@@ -126,20 +131,16 @@ async function unprotectAsync(stored) {
             const out = await psAsync(UNPROTECT_CMD, hex);
             return (out || '').replace(/\r?\n$/, '');
         } catch (e) {
-            return '';
+            throw new Error(`Failed to decrypt DPAPI credential: ${e.message}`);
         }
     }
 
-    // 3. Plain base64 fallback
+    // Refuse plaintext tokens
     if (s.startsWith('plain:')) {
-        try {
-            return Buffer.from(s.slice(6), 'base64').toString('utf8');
-        } catch (e) {
-            return '';
-        }
+        throw new Error('Refusing legacy or insecure plaintext credential format');
     }
 
-    return s;
+    throw new Error('Unrecognized or insecure credential format');
 }
 
 function isProtected(stored) {

@@ -2,7 +2,7 @@
 //
 // Extracts strictly the /api/fenix/* routes from MLMVPN's server.js.
 // Connects fenix-session directly to xray-runner, health-check, and system-proxy.
-// Does NOT include any routes or logic for other engines, VPN always-on, or TUN.
+// Includes strict input validation on all route parameters.
 
 'use strict';
 
@@ -12,6 +12,18 @@ const fenixSessionModule = require('./fenix-session');
 const xrayRunner = require('./xray-runner');
 const healthCheck = require('./health-check');
 const systemProxy = require('./system-proxy');
+
+const ALLOWED_CHALLENGE_HOSTS = new Set([
+    'api.accounts.firefox.com',
+    'accounts.firefox.com',
+    'oauth.accounts.firefox.com',
+    'vpn.mozilla.org',
+]);
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const CODE_REGEX = /^\d{6,8}$/;
+const HEX_ID_REGEX = /^[0-9a-fA-F]{10,64}$/;
+const COUNTRY_REGEX = /^[A-Z]{2}$/;
 
 function createFenixRouter(eventEmitter) {
     const router = express.Router();
@@ -67,7 +79,9 @@ function createFenixRouter(eventEmitter) {
             const result = await fn(req.body || {}, req);
             res.json(Object.assign({ ok: true }, result));
         } catch (e) {
-            const status = e.code === 'CHALLENGE' ? 409 : 400;
+            const status = e.code === 'CHALLENGE' ? 409
+                : e.code === 'INVALID_INPUT' ? 400
+                : 400;
             res.status(status).json({
                 error: e.message || 'Error occurred',
                 code: e.code || null,
@@ -75,9 +89,6 @@ function createFenixRouter(eventEmitter) {
             });
         }
     };
-
-    const fenixCountry = (v) => (/^[A-Z]{2}$/.test(String(v || '')) ? String(v) : 'fastest');
-    const fenixAccount = (v) => (/^[0-9a-f]{10}$/.test(String(v || '')) ? String(v) : null);
 
     // GET /api/fenix — Status and current session info
     router.get('/api/fenix', fenixHandle(async () => {
@@ -100,12 +111,30 @@ function createFenixRouter(eventEmitter) {
 
     // POST /api/fenix/signin — Firefox Account sign in
     router.post('/api/fenix/signin', fenixHandle(async (b) => {
-        return await fx.signIn(b.email, b.password);
+        const email = String(b.email || '').trim();
+        const password = String(b.password || '');
+        if (!email || email.length > 254 || !EMAIL_REGEX.test(email)) {
+            const err = new Error('ایمیل وارد شده نامعتبر است.');
+            err.code = 'INVALID_INPUT';
+            throw err;
+        }
+        if (!password || password.length > 256) {
+            const err = new Error('رمز عبور الزامی است.');
+            err.code = 'INVALID_INPUT';
+            throw err;
+        }
+        return await fx.signIn(email, password);
     }));
 
     // POST /api/fenix/code — 2FA or email confirmation code verification
     router.post('/api/fenix/code', fenixHandle(async (b) => {
-        await fx.verifyCode(b.code);
+        const code = String(b.code || '').trim();
+        if (!CODE_REGEX.test(code)) {
+            const err = new Error('کد تأیید باید ۶ یا ۸ رقم عددی باشد.');
+            err.code = 'INVALID_INPUT';
+            throw err;
+        }
+        await fx.verifyCode(code);
         return {};
     }));
 
@@ -116,22 +145,37 @@ function createFenixRouter(eventEmitter) {
 
     // POST /api/fenix/challenge — Handle Fastly browser challenge
     router.post('/api/fenix/challenge', fenixHandle(async (b) => {
-        return await fx.challenge({ host: String(b.host || ''), purpose: String(b.purpose || '') });
+        const host = String(b.host || '').trim().toLowerCase();
+        const purpose = String(b.purpose || '').trim().slice(0, 64);
+        if (!ALLOWED_CHALLENGE_HOSTS.has(host)) {
+            const err = new Error(`هاست چالش نامعتبر است: ${host}`);
+            err.code = 'INVALID_INPUT';
+            throw err;
+        }
+        return await fx.challenge({ host, purpose });
     }));
 
     // POST /api/fenix/signout — Remove account
     router.post('/api/fenix/signout', fenixHandle(async (b) => {
-        return { removed: fx.signOut(String(b.id || '')) };
+        const id = String(b.id || '').trim();
+        if (!HEX_ID_REGEX.test(id)) {
+            const err = new Error('شناسه حساب نامعتبر است.');
+            err.code = 'INVALID_INPUT';
+            throw err;
+        }
+        return { removed: fx.signOut(id) };
     }));
 
     // POST /api/fenix/quota — Refresh 50GB allowance
     router.post('/api/fenix/quota', fenixHandle(async (b) => {
-        return { accounts: await fx.refreshQuotas({ force: !!b.force }) };
+        const force = Boolean(b && b.force);
+        return { accounts: await fx.refreshQuotas({ force }) };
     }));
 
     // POST /api/fenix/servers — Fetch Mozilla's server list & run pings
     router.post('/api/fenix/servers', fenixHandle(async (b) => {
-        const list = await fx.servers();
+        const force = Boolean(b && b.force);
+        const list = await fx.servers(force);
         if (!fenixPing.running && list.length) {
             fenixPing = { running: true };
             fx.pingAll(list).catch(() => {}).finally(() => {
@@ -144,9 +188,21 @@ function createFenixRouter(eventEmitter) {
 
     // POST /api/fenix/connect — Connect to a country/server
     router.post('/api/fenix/connect', fenixHandle(async (b) => {
+        let country = String(b.country || '').trim().toUpperCase();
+        if (country !== 'FASTEST' && !COUNTRY_REGEX.test(country)) {
+            country = 'fastest';
+        } else if (country === 'FASTEST') {
+            country = 'fastest';
+        }
+
+        let accountId = b.accountId ? String(b.accountId).trim() : null;
+        if (accountId && !HEX_ID_REGEX.test(accountId)) {
+            accountId = null;
+        }
+
         const session = await getSession().connect({
-            country: fenixCountry(b.country),
-            accountId: fenixAccount(b.accountId),
+            country,
+            accountId,
         });
         return { session };
     }));
@@ -159,7 +215,7 @@ function createFenixRouter(eventEmitter) {
 
     // Proxy toggle routes (compatible with public/components/fenix.js)
     router.post('/api/v2ray/sysproxy', fenixHandle(async (b) => {
-        const enable = !!b.enable;
+        const enable = Boolean(b && b.enable);
         if (enable) {
             proxyWanted = true;
             await systemProxy.enable();
@@ -171,7 +227,9 @@ function createFenixRouter(eventEmitter) {
     }));
 
     router.post('/api/v2ray/tun', fenixHandle(async () => {
-        return { ok: false, error: 'TUN mode is disabled in this standalone stage' };
+        const err = new Error('TUN mode is disabled in this standalone stage');
+        err.code = 'TUN_DISABLED';
+        throw err;
     }));
 
     return router;
@@ -179,4 +237,5 @@ function createFenixRouter(eventEmitter) {
 
 module.exports = {
     createFenixRouter,
+    ALLOWED_CHALLENGE_HOSTS,
 };
