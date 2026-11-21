@@ -872,6 +872,32 @@ function noteExit(country, loc) {
 
 /** Only Mozilla's own pages open in the check window. */
 let MOZ_PAGE = /^https:\/\/([a-z0-9-]+\.)*(firefox\.com|mozilla\.(org|com))(\/|$)/i;
+let customMozPage = null;
+
+/** Strict Mozilla host validator checking exact domain or true subdomain suffix */
+function isAllowedMozillaHost(host) {
+    if (!host || typeof host !== 'string') return false;
+    const h = host.toLowerCase().trim();
+    const allowedDomains = ['firefox.com', 'mozilla.org', 'mozilla.com'];
+    return allowedDomains.some((d) => h === d || h.endsWith('.' + d));
+}
+
+/** Strict Mozilla URL validator checking protocol, port, and hostname */
+function isAllowedMozillaUrl(rawUrl) {
+    if (!rawUrl || typeof rawUrl !== 'string') return false;
+    if (customMozPage && typeof customMozPage.test === 'function') {
+        return customMozPage.test(rawUrl);
+    }
+    try {
+        const parsed = new URL(rawUrl);
+        if (parsed.protocol !== 'https:') return false;
+        if (parsed.port && parsed.port !== '443') return false;
+        return isAllowedMozillaHost(parsed.hostname);
+    } catch {
+        return false;
+    }
+}
+
 /** Firefox Accounts' own site: the origin Mozilla's page calls its servers from. */
 let ACCOUNTS_PAGE = /^https:\/\/accounts\.firefox\.com(\/|$)/i;
 /**
@@ -884,7 +910,7 @@ let ACCOUNTS_PAGE = /^https:\/\/accounts\.firefox\.com(\/|$)/i;
 const checkPage = (host) => {
     const h = String(host || '').toLowerCase();
     // A Mozilla host of no known site (the server list's): its own page, as on the phone.
-    return CHECK_PAGES[siteOf(h)] || (h && MOZ_PAGE.test(`https://${h}/`) ? `https://${h}/` : CHECK_PAGES['firefox.com']);
+    return CHECK_PAGES[siteOf(h)] || (h && isAllowedMozillaHost(h) ? `https://${h}/` : CHECK_PAGES['firefox.com']);
 };
 /** What a page keeps besides cookies — wiped before and after each window, so no Mozilla session stays on disk. */
 const PAGE_STORAGE = ['localstorage', 'indexdb', 'websql', 'serviceworkers', 'cachestorage', 'filesystem'];
@@ -1152,7 +1178,11 @@ function checkWindow(me, ses, page, signIn, { show = true } = {}) {
         const wc = w.webContents;
         // Only Mozilla's own pages, nothing else opens in this window.
         wc.setWindowOpenHandler(() => ({ action: 'deny' }));
-        const onlyMozilla = (e, url) => { if (!MOZ_PAGE.test(url)) e.preventDefault(); };
+        const onlyMozilla = (e, url) => {
+            if (!isAllowedMozillaUrl(url)) {
+                e.preventDefault();
+            }
+        };
         wc.on('will-navigate', onlyMozilla);
         wc.on('will-redirect', onlyMozilla);
         w.on('page-title-updated', (e) => e.preventDefault());
@@ -1244,6 +1274,7 @@ module.exports = {
     findTarget, prepare, setHttp1, noteExit, challenge, signOut, status, FenixError, FILE, MIN_LEFT_BYTES, READ_PAGE_JS,
     checkPage, settle, pageWork, pageHasWork, checkWindow, REFRESH_URLS, PAGE_REFRESH_URLS, LOG_FILE, sanitizeLog,
     solver, WEBCHANNEL_HOOK_JS, WEBCHANNEL_LOGIN_URL,
+    isAllowedMozillaUrl, isAllowedMozillaHost,
     _setFetch: (f) => { fetchImpl = f; }, _setNet: (n) => { net = Object.assign({ ping: handshakeMs, lookup: lookupAll }, n || {}); },
     _setBrowser: (f) => { browserFetch = f || browserFetchReal; browserStandIn = !!f; },
     // Tests: a stand-in for Mozilla's page (the script it is handed), and a stand-in Mozilla on loopback.
@@ -1256,7 +1287,10 @@ module.exports = {
             const base = h.accounts.replace(/\/$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             ACCOUNTS_PAGE = new RegExp('^' + base + '(/|$)', 'i');
         }
-        if (h.mozPage) MOZ_PAGE = h.mozPage;
+        if (h.mozPage) {
+            MOZ_PAGE = h.mozPage;
+            customMozPage = h.mozPage;
+        }
     },
     _pending: () => pending,
     _needPage: () => [...needPage],

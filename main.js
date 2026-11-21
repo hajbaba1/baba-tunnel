@@ -5,7 +5,9 @@
 
 'use strict';
 
-const { app, BrowserWindow } = require('electron');
+const electron = require('electron');
+const app = typeof electron === 'object' && electron ? electron.app : null;
+const BrowserWindow = typeof electron === 'object' && electron ? electron.BrowserWindow : null;
 const path = require('path');
 const { startServer } = require('./server');
 const systemProxy = require('./system-proxy');
@@ -13,6 +15,24 @@ const xrayRunner = require('./xray-runner');
 
 let mainWindow = null;
 let serverInstance = null;
+
+/**
+ * Strict navigation check using URL parser.
+ * Compares protocol, hostname, and port independently against allowed local server values.
+ */
+function isAllowedNavigationUrl(rawUrl, serverPort) {
+    if (!rawUrl || typeof rawUrl !== 'string') return false;
+    try {
+        const parsed = new URL(rawUrl);
+        if (parsed.protocol !== 'http:') return false;
+        if (parsed.hostname !== '127.0.0.1' && parsed.hostname !== 'localhost') return false;
+        const port = parsed.port ? parseInt(parsed.port, 10) : 80;
+        if (port !== Number(serverPort)) return false;
+        return true;
+    } catch {
+        return false;
+    }
+}
 
 async function createWindow(serverPort) {
     mainWindow = new BrowserWindow({
@@ -33,7 +53,7 @@ async function createWindow(serverPort) {
     // Security Hardening: Block external navigation and popups
     mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     mainWindow.webContents.on('will-navigate', (event, url) => {
-        if (!url.startsWith(`http://127.0.0.1:${serverPort}`) && !url.startsWith(`http://localhost:${serverPort}`)) {
+        if (!isAllowedNavigationUrl(url, serverPort)) {
             event.preventDefault();
         }
     });
@@ -56,32 +76,40 @@ async function init() {
     await createWindow(port);
 }
 
-app.whenReady().then(init).catch((err) => {
-    console.error('[Fenix Standalone] Initialization error:', err);
-    app.quit();
-});
-
-app.on('window-all-closed', async () => {
-    // Teardown xray and system proxy before quitting
-    try {
-        await systemProxy.disable();
-        await xrayRunner.stop();
-    } catch (e) {
-        // ignore during exit
-    }
-
-    if (serverInstance) {
-        serverInstance.close();
-    }
-
-    if (process.platform !== 'darwin') {
+if (app && app.whenReady) {
+    app.whenReady().then(init).catch((err) => {
+        console.error('[Fenix Standalone] Initialization error:', err);
         app.quit();
-    }
-});
+    });
 
-app.on('before-quit', async () => {
-    try {
-        await systemProxy.disable();
-        await xrayRunner.stop();
-    } catch (e) {}
-});
+    app.on('window-all-closed', async () => {
+        // Teardown xray and system proxy before quitting
+        try {
+            await systemProxy.disable();
+            await xrayRunner.stop();
+        } catch (e) {
+            // ignore during exit
+        }
+
+        if (serverInstance) {
+            serverInstance.close();
+        }
+
+        if (process.platform !== 'darwin') {
+            app.quit();
+        }
+    });
+
+    app.on('before-quit', async () => {
+        try {
+            await systemProxy.disable();
+            await xrayRunner.stop();
+        } catch (e) {}
+    });
+}
+
+module.exports = {
+    isAllowedNavigationUrl,
+    createWindow,
+    init,
+};
