@@ -36,11 +36,14 @@ function isAllowedNavigationUrl(rawUrl, serverPort) {
 
 async function createWindow(serverPort) {
     mainWindow = new BrowserWindow({
-        width: 1020,
-        height: 700,
-        minWidth: 780,
-        minHeight: 560,
-        backgroundColor: '#141518',
+        width: 380,
+        height: 640,
+        minWidth: 350,
+        minHeight: 580,
+        maxWidth: 440,
+        maxHeight: 750,
+        resizable: true,
+        backgroundColor: '#121316',
         autoHideMenuBar: true,
         title: 'Fenix VPN',
         webPreferences: {
