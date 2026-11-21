@@ -30,6 +30,14 @@ async function createWindow(serverPort) {
         },
     });
 
+    // Security Hardening: Block external navigation and popups
+    mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    mainWindow.webContents.on('will-navigate', (event, url) => {
+        if (!url.startsWith(`http://127.0.0.1:${serverPort}`) && !url.startsWith(`http://localhost:${serverPort}`)) {
+            event.preventDefault();
+        }
+    });
+
     await mainWindow.loadURL(`http://127.0.0.1:${serverPort}`);
 
     mainWindow.on('closed', () => {

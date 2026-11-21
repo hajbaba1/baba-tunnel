@@ -20,5 +20,8 @@
     "node": ">=20"
   },
   "type": "commonjs",
-  "license": "SEE LICENSE IN LICENSE"
+  "license": "SEE LICENSE IN LICENSE",
+  "allowScripts": {
+    "electron@34.5.8": true
+  }
 }

@@ -140,6 +140,56 @@ test('security-routes: strict input validation on /api/fenix/*', async () => {
     }
 });
 
+test('security-routes: error responses from signin/code/connect do not leak secrets', async () => {
+    const { server, port, sessionToken } = await startServer(0);
+
+    try {
+        const authHeaders = {
+            'Host': `127.0.0.1:${port}`,
+            'x-fenix-token': sessionToken,
+        };
+
+        const secretPassword = 'SUPER_SECRET_PLAINTEXT_PASSWORD_999!';
+        const secretBearer = 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.SECRET_TOKEN_XYZ';
+
+        // 1. /api/fenix/signin with invalid email containing secret
+        const resSignin = await httpRequest({
+            port,
+            path: '/api/fenix/signin',
+            method: 'POST',
+            headers: authHeaders,
+            body: { email: `invalid-email-with-${secretBearer}`, password: secretPassword },
+        });
+        assert.ok(resSignin.status >= 400);
+        assert.strictEqual(resSignin.data.includes(secretPassword), false, 'Error response must not leak secretPassword');
+        assert.strictEqual(resSignin.data.includes('SECRET_TOKEN_XYZ'), false, 'Error response must not leak JWT token');
+
+        // 2. /api/fenix/code with secret payload in code field
+        const resCode = await httpRequest({
+            port,
+            path: '/api/fenix/code',
+            method: 'POST',
+            headers: authHeaders,
+            body: { code: `code_leak_${secretPassword}` },
+        });
+        assert.ok(resCode.status >= 400);
+        assert.strictEqual(resCode.data.includes(secretPassword), false, 'Error response must not leak secretPassword');
+
+        // 3. /api/fenix/connect with malformed country containing token
+        const resConnect = await httpRequest({
+            port,
+            path: '/api/fenix/connect',
+            method: 'POST',
+            headers: authHeaders,
+            body: { country: `TOKEN_${secretPassword}`, accountId: 'bad_id' },
+        });
+        assert.ok(resConnect.status >= 200); // Handled gracefully or errored
+        assert.strictEqual(resConnect.data.includes(secretPassword), false, 'Connect response must not leak secret');
+    } finally {
+        server.close();
+    }
+});
+
 test('security-sanitization: sanitizeLog removes passwords, tokens, emails, and auth headers', () => {
     const rawLog = 'User user.name+test@example.com signed in with password="MySecretPassword123!" code=123456 Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c and Proxy-Authorization: Bearer secret-token-xyz';
 

@@ -72,6 +72,7 @@ function createApp(sessionToken = crypto.randomBytes(24).toString('hex')) {
             html = html.replace('</head>', `${tokenScript}\n</head>`);
             res.setHeader('Content-Type', 'text/html; charset=utf-8');
             res.setHeader('Cache-Control', 'no-store');
+            res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self' http://127.0.0.1:* http://localhost:*;");
             res.send(html);
         } catch (e) {
             res.status(500).send('Failed to load application template');

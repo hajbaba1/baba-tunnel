@@ -24,17 +24,17 @@ Original Copyright (c) 2026 Ehsan (MLMVPN). Licensed under the MLMVPN Attributio
 
 ---
 
-## Key Features
-- **Mozilla FxA & Guardian API Integration:** Direct account authorization and automated pass renewal.
-- **Fastly Challenge Solver:** Local solving of Fastly proof-of-work bot challenges.
-- **Safe System Proxy Management:** Windows Internet Settings toggled with automatic state preservation on disk and recovery after abnormal shutdowns.
-- **Zero Kernel TUN Dependency:** Completely decoupled from TAP/TUN drivers and DNS mutators in this stage.
+## Architecture & Authentication Flow
+- **Authentication:** Users input email and password into the in-app client form. The application computes the derived `authPW` in memory via PBKDF2/HKDF and transmits it over TLS to Mozilla's FxA endpoint. The plaintext password is never stored on disk; granted tokens are protected using Windows DPAPI / Electron `safeStorage`.
+- **Fastly Challenge Solver:** When Mozilla endpoints return HTTP 406 challenges, `fastly-solver.js` executes proof-of-work challenges locally. If interactive verification is required, an isolated Electron window loads Mozilla's challenge page directly.
+- **Safe Proxy Management:** Windows Internet Settings are toggled with automated state backup on disk and recovery after abnormal shutdowns.
+- **Port Isolation:** SOCKS (10808) and HTTP (10809) inbounds listen strictly on `127.0.0.1`.
 
 ---
 
 ## ریسک‌ها و محدودیت‌ها (Risks and Limitations)
-این برنامه با اهداف تحقیقاتی و دسترسی به اطلاعات آزاد طراحی شده است و کاربران باید محدودیت‌ها و ریسک‌های فنی و عملیاتی زیر را مد نظر داشته باشند:
-1. **استفاده از زیرساخت شخص ثالث بدون توافق‌نامهٔ رسمی:** این کلاینت از سرورها و مسیرهای رایگان موزیلا (Mozilla Guardian) و شبکهٔ لبهٔ Fastly بدون قرارداد یا توافق رسمی استفاده می‌کند.
-2. **احراز هویت با شناسهٔ کلاینت موزیلا:** برنامه برای برقراری ارتباط و دریافت توکن، از شناسهٔ کلاینت عمومی ثبت‌شدهٔ کلاینت رسمی موزیلا (`CLIENT_ID = '5882386c6d801776'`) استفاده می‌نماید.
-3. **حل خودکار چالش‌های امنیتی:** این نرم‌افزار به یک حل‌کنندهٔ محلی اثبات کار (`fastly-solver.js`) برای دور زدن خطای ۴۰۶ و چالش‌های ربات‌سنجی Fastly مجهز است.
-4. **ریسک مسدودسازی یا ناپایداری:** از آنجا که زیرساخت متعلق به ارائه‌دهندگان ثالث است، ممکن است در هر لحظه به‌واسطهٔ تغییرات سرور، تغییر الگوریتم‌های چالش امنیتی یا تغییر در ساختار APIهای Guardian و FxA، دسترسی به سرویس مسدود، محدود یا کاملاً متوقف شود.
+این برنامه با اهداف تحقیقاتی و دسترسی به اطلاعات آزاد طراحی شده است:
+1. **استفاده از زیرساخت شخص ثالث بدون توافق‌نامهٔ رسمی:** اتصال به سرورهای موزیلا (Mozilla Guardian) و شبکهٔ لبهٔ Fastly بدون قرارداد رسمی انجام می‌گیرد.
+2. **احراز هویت با شناسهٔ کلاینت موزیلا:** برنامه برای تبادل توکن از Client ID رسمی موزیلا (`5882386c6d801776`) استفاده می‌کند.
+3. **حل خودکار چالش‌های امنیتی:** از ماژول محلی `fastly-solver.js` برای دور زدن چالش‌های ربات‌سنجی Fastly استفاده می‌شود.
+4. **پایداری سرویس:** در هر زمان ممکن است به‌واسطهٔ تغییرات امنیتی بالادستی سرورهای موزیلا یا فستلی، دسترسی مسدود یا متوقف گردد.
