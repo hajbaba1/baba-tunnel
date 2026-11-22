@@ -12,6 +12,7 @@ const fenixSessionModule = require('./fenix-session');
 const xrayRunner = require('./xray-runner');
 const healthCheck = require('./health-check');
 const systemProxy = require('./system-proxy');
+const killSwitch = require('./kill-switch');
 
 const ALLOWED_CHALLENGE_HOSTS = new Set([
     '',
@@ -58,7 +59,11 @@ function createFenixRouter(eventEmitter) {
                     await systemProxy.disable();
                     proxyWanted = false;
                 }
-                return await xrayRunner.stop();
+                const res = await xrayRunner.stop();
+                if (killSwitch.getStatus().enabled) {
+                    await killSwitch.engage('vpn_stopped');
+                }
+                return res;
             },
             verify: async () => {
                 return await healthCheck.verify(xrayRunner.SOCKS_PORT, { timeoutMs: 10000 });
@@ -68,7 +73,13 @@ function createFenixRouter(eventEmitter) {
             proxyIntent: () => proxyWanted,
             remember: () => {}, // Standalone note: alwaysOnReplay out of scope
             emit: (st) => {
-                broadcast('fenix-state', { session: st });
+                const phase = st ? st.phase : 'off';
+                killSwitch.onSessionState(phase).then(() => {
+                    broadcast('fenix-state', {
+                        session: st,
+                        killSwitch: killSwitch.getStatus(),
+                    });
+                }).catch(() => {});
             },
         });
 
@@ -100,6 +111,7 @@ function createFenixRouter(eventEmitter) {
             ping: fenixPing,
             session,
             ports,
+            killSwitch: killSwitch.getStatus(),
         }, fx.status());
 
         out.route = {
@@ -181,10 +193,41 @@ function createFenixRouter(eventEmitter) {
             fenixPing = { running: true };
             fx.pingAll(list).catch(() => {}).finally(() => {
                 fenixPing = { running: false };
-                broadcast('fenix-state', fx.status());
+                broadcast('fenix-state', Object.assign({ ping: fenixPing }, fx.status()));
             });
         }
         return { servers: list, ping: fenixPing };
+    }));
+
+    // POST /api/fenix/ping — Force re-measure pings for all servers
+    router.post('/api/fenix/ping', fenixHandle(async () => {
+        let list = await fx.servers();
+        if (!list || !list.length) {
+            list = await fx.servers(true);
+        }
+        if (!list || !list.length) throw new fx.FenixError('لیست سرورها در دسترس نیست.', 'NO_SERVERS');
+        if (fenixPing.running) return { ping: fenixPing, status: 'already_running' };
+        fenixPing = { running: true };
+        fx.pingAll(list).catch(() => {}).finally(() => {
+            fenixPing = { running: false };
+            broadcast('fenix-state', Object.assign({ ping: fenixPing }, fx.status()));
+        });
+        return { ping: fenixPing, status: 'started' };
+    }));
+
+    // GET /api/fenix/killswitch — Get current kill switch status
+    router.get('/api/fenix/killswitch', fenixHandle(async () => {
+        return killSwitch.getStatus();
+    }));
+
+    // POST /api/fenix/killswitch — Toggle kill switch
+    router.post('/api/fenix/killswitch', fenixHandle(async (b) => {
+        const enabled = Boolean(b && b.enabled);
+        const session = getSession().check();
+        const currentPhase = session ? session.phase : 'off';
+        const status = await killSwitch.setSetting(enabled, currentPhase);
+        broadcast('fenix-state', { killSwitch: status });
+        return status;
     }));
 
     // POST /api/fenix/connect — Connect to a country/server

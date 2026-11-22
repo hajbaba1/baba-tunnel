@@ -77,6 +77,7 @@
         serverSheetOpen: false,
         drawerOpen: false,
         drawerTab: 'accounts', // 'accounts' | 'advanced' | 'log' | 'about'
+        pinging: false,
         log: [],
     };
 
@@ -308,6 +309,62 @@
         }
     }
 
+    async function pingAllServers() {
+        if (st.pinging) return;
+        st.pinging = true;
+        const btn = $('fnx-ping-all-btn');
+        const iconBtn = $('fnx-quick-ping-btn');
+        if (btn) {
+            btn.classList.add('is-measuring');
+            btn.innerHTML = `<i class="ph-bold ph-spinner"></i> در حال پینگ…`;
+        }
+        if (iconBtn) iconBtn.classList.add('is-spinning');
+        log('— سنجش پینگ و کیفیت اتصال به تمام سرورها…');
+        try {
+            await api('fenix/ping');
+            // Poll for completion up to 15 seconds
+            for (let i = 0; i < 15; i++) {
+                await new Promise((r) => setTimeout(r, 1000));
+                const d = await api('fenix');
+                st.data = d;
+                renderServerList();
+                renderServerRow();
+                if (!d.ping || !d.ping.running) break;
+            }
+            log('✅ نتیجه سنجش پینگ تمام سرورها دریافت شد.');
+            if (window.toast) window.toast('پینگ سرورها به‌روزرسانی شد.');
+        } catch (e) {
+            log(`✗ خطا در سنجش پینگ: ${e.message}`);
+        } finally {
+            st.pinging = false;
+            if (btn) {
+                btn.classList.remove('is-measuring');
+                btn.innerHTML = `<i class="ph-bold ph-lightning"></i> تست پینگ سرورها`;
+            }
+            if (iconBtn) iconBtn.classList.remove('is-spinning');
+            renderServerList();
+            renderServerRow();
+        }
+    }
+
+    async function toggleKillSwitch(enabled) {
+        if (st.busy) return;
+        st.busy = 'killswitch';
+        try {
+            const res = await api('fenix/killswitch', { enabled });
+            if (st.data) st.data.killSwitch = res;
+            setPrefs({ killSwitch: !!enabled });
+            log(enabled ? '🛡️ قابلیت کیل‌سوئیچ فعال شد (محافظت در برابر نشت IP).' : 'سپر کیل‌سوئیچ غیرفعال شد.');
+            paint();
+            if (window.toast) window.toast(enabled ? 'کیل‌سوئیچ فعال شد.' : 'کیل‌سوئیچ غیرفعال شد.');
+        } catch (e) {
+            log(`✗ خطا در تغییر وضعیت کیل‌سوئیچ: ${e.message}`);
+        } finally {
+            st.busy = '';
+            paint();
+        }
+    }
+
     // ── Sheet & Drawer Toggles ─────────────────────────────────────────────
     function openServerSheet() {
         st.serverSheetOpen = true;
@@ -368,10 +425,25 @@
         renderTopBar();
         renderPowerButton();
         renderBanner();
+        renderKillSwitchBanner();
         renderServerRow();
         renderAccountRow();
         renderModeSwitch();
         renderFooter();
+    }
+
+    function renderKillSwitchBanner() {
+        const banner = $('fnx-ks-banner');
+        const ks = st.data && st.data.killSwitch;
+        const engaged = !!(ks && ks.engaged && !isOn());
+        if (banner) {
+            banner.hidden = !engaged;
+            banner.style.display = engaged ? 'flex' : 'none';
+        }
+        const toggle = $('fnx-ks-toggle');
+        if (toggle && ks) {
+            toggle.checked = !!ks.enabled;
+        }
     }
 
     function renderTopBar() {
@@ -458,13 +530,20 @@
         if (nameHost) nameHost.textContent = cc === 'fastest' ? 'سریع‌ترین (انتخاب خودکار)' : countryName(cc);
 
         if (pingHost) {
-            const pings = (D().session && D().session.pings) || {};
-            const val = pings[cc];
-            if (val != null) {
+            const pings = D().pings || {};
+            const srvs = D().servers || [];
+            let val = pings[cc];
+            if (val == null) {
+                const found = srvs.find((s) => s.country === cc);
+                if (found && found.ms != null) val = found.ms;
+            }
+            if (val != null && val > 0) {
                 const dotClass = val < 180 ? 'is-good' : val < 320 ? 'is-mid' : 'is-slow';
                 pingHost.innerHTML = `<span class="fnx-ping-dot ${dotClass}"></span> ${fa(val)} ms`;
+            } else if (val === -1) {
+                pingHost.innerHTML = `<span class="fnx-ping-dot is-slow"></span> خطای پینگ`;
             } else {
-                pingHost.textContent = '—';
+                pingHost.innerHTML = '—';
             }
         }
     }
@@ -525,7 +604,7 @@
         const current = prefs().country;
         const query = (st.serverSearch || '').trim().toLowerCase();
         const srvs = D().servers || [];
-        const pings = (D().session && D().session.pings) || {};
+        const pings = D().pings || {};
 
         let itemsHtml = `
           <div class="fnx-server-item ${current === 'fastest' ? 'is-selected' : ''}" data-cc="fastest">
@@ -538,9 +617,16 @@
             const cc = s.country;
             const name = countryName(cc);
             if (query && !name.toLowerCase().includes(query) && !cc.toLowerCase().includes(query)) return;
-            const pingVal = pings[cc];
-            const pingDot = pingVal != null ? (pingVal < 180 ? 'is-good' : pingVal < 320 ? 'is-mid' : 'is-slow') : '';
-            const pingText = pingVal != null ? `${fa(pingVal)} ms` : '—';
+            const pingVal = (pings[cc] != null) ? pings[cc] : (s.ms != null ? s.ms : null);
+            let pingDot = '';
+            let pingText = '—';
+            if (pingVal != null && pingVal > 0) {
+                pingDot = pingVal < 180 ? 'is-good' : pingVal < 320 ? 'is-mid' : 'is-slow';
+                pingText = `${fa(pingVal)} ms`;
+            } else if (pingVal === -1) {
+                pingDot = 'is-slow';
+                pingText = 'تایم‌اوت';
+            }
 
             itemsHtml += `
               <div class="fnx-server-item ${current === cc ? 'is-selected' : ''}" data-cc="${esc(cc)}">
@@ -648,6 +734,15 @@
       </div>
     </div>
 
+    <!-- Kill Switch Engaged Alert Banner -->
+    <div class="fnx-ks-banner" id="fnx-ks-banner" hidden>
+      <i class="ph-fill ph-shield-warning"></i>
+      <div class="fnx-ks-text">
+        <strong>سپر کیل‌سوئیچ فعال است:</strong> اینترنت جهت جلوگیری از نشت IP مسدود شد.
+      </div>
+      <button type="button" class="fnx-ks-action" id="fnx-ks-quick-disable">غیرفعال‌سازی</button>
+    </div>
+
     <!-- Alert / Challenge Banner -->
     <div class="fnx-alert-banner" id="fnx-alert-banner" hidden>
       <i class="ph-fill ph-warning-circle"></i>
@@ -718,11 +813,25 @@
   <div class="fnx-sheet" id="fnx-server-sheet" hidden>
     <div class="fnx-sheet-top">
       <div class="fnx-sheet-title">انتخاب کشور خروج</div>
-      <button type="button" class="fnx-btn-icon" id="fnx-close-server-sheet"><i class="ph-bold ph-x"></i></button>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <button type="button" class="fnx-btn-icon" id="fnx-quick-ping-btn" title="تست پینگ همه سرورها" aria-label="تست پینگ">
+          <i class="ph-bold ph-lightning"></i>
+        </button>
+        <button type="button" class="fnx-btn-icon" id="fnx-close-server-sheet"><i class="ph-bold ph-x"></i></button>
+      </div>
     </div>
     <div class="fnx-search-wrap">
       <i class="ph-bold ph-magnifying-glass" style="color:var(--fnx-text-3);"></i>
       <input type="text" class="fnx-search-input" id="fnx-server-search" placeholder="جستجوی نام یا کد کشور…" />
+    </div>
+    <div class="fnx-ping-bar">
+      <div class="fnx-ping-info">
+        <i class="ph-bold ph-activity" style="color:var(--fnx-flame-1)"></i>
+        <span id="fnx-ping-meta">تأخیر و پینگ سرورها</span>
+      </div>
+      <button type="button" class="fnx-ping-action-btn" id="fnx-ping-all-btn">
+        <i class="ph-bold ph-lightning"></i> تست پینگ سرورها
+      </button>
     </div>
     <div class="fnx-server-list custom-scrollbar" id="fnx-server-list"></div>
   </div>
@@ -736,7 +845,7 @@
       </div>
       <div class="fnx-drawer-tabs">
         <button type="button" class="fnx-dtab is-active" data-dtab="accounts">حساب‌ها</button>
-        <button type="button" class="fnx-dtab" data-dtab="advanced">پورت‌ها</button>
+        <button type="button" class="fnx-dtab" data-dtab="advanced">تنظیمات</button>
         <button type="button" class="fnx-dtab" data-dtab="log">گزارش</button>
         <button type="button" class="fnx-dtab" data-dtab="about">درباره</button>
       </div>
@@ -746,8 +855,30 @@
           <div id="fnx-accounts-content"></div>
         </div>
 
-        <!-- Advanced Ports Pane -->
+        <!-- Advanced Settings Pane -->
         <div class="fnx-dpane" id="fnx-dpane-advanced">
+          <!-- Kill Switch Card -->
+          <div class="fnx-sub-card">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+              <div>
+                <div class="fnx-sub-title" style="margin-bottom:3px;display:flex;align-items:center;gap:6px;">
+                  <i class="ph-fill ph-shield-check" style="color:var(--fnx-flame-1);font-size:16px;"></i>
+                  کیل‌سوئیچ (Kill Switch)
+                </div>
+                <div style="font-size:11.5px;color:var(--fnx-text-2);line-height:1.5;">
+                  مسدودسازی نشت اینترنت هنگام قطع اتصال وی‌پی‌ان
+                </div>
+              </div>
+              <label class="fnx-switch">
+                <input type="checkbox" id="fnx-ks-toggle" />
+                <span class="fnx-slider"></span>
+              </label>
+            </div>
+            <div style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:var(--fnx-text-3);line-height:1.5;">
+              در صورت قطع ناگهانی ارتباط یا خاموش بودن وی‌پی‌ان، ترافیک مستقیم اینترنت مسدود می‌ماند تا آی‌پی واقعی شما نشت نکند.
+            </div>
+          </div>
+
           <div class="fnx-sub-card">
             <div class="fnx-sub-title">پورت‌های محلی Xray:</div>
             <div class="fnx-sub-line">
@@ -844,6 +975,25 @@
         // Menu button -> open drawer
         const menuBtn = $('fnx-menu-btn');
         if (menuBtn) menuBtn.onclick = () => openDrawer('accounts');
+
+        // Kill Switch toggle
+        const ksToggle = $('fnx-ks-toggle');
+        if (ksToggle) {
+            ksToggle.onchange = (e) => toggleKillSwitch(e.target.checked);
+        }
+
+        // Kill Switch quick disable button
+        const ksQuickDisable = $('fnx-ks-quick-disable');
+        if (ksQuickDisable) {
+            ksQuickDisable.onclick = () => toggleKillSwitch(false);
+        }
+
+        // Ping buttons
+        const pingAllBtn = $('fnx-ping-all-btn');
+        if (pingAllBtn) pingAllBtn.onclick = () => pingAllServers();
+
+        const quickPingBtn = $('fnx-quick-ping-btn');
+        if (quickPingBtn) quickPingBtn.onclick = () => pingAllServers();
 
         // Drawer close button
         const closeDrawerBtn = $('fnx-close-drawer');

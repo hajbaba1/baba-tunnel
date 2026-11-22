@@ -185,6 +185,44 @@ test('security-routes: error responses from signin/code/connect do not leak secr
         });
         assert.ok(resConnect.status >= 200); // Handled gracefully or errored
         assert.strictEqual(resConnect.data.includes(secretPassword), false, 'Connect response must not leak secret');
+
+        // Test Kill Switch route
+        const resKsGet = await httpRequest({
+            port,
+            path: '/api/fenix/killswitch',
+            headers: authHeaders,
+        });
+        assert.strictEqual(resKsGet.status, 200);
+        assert.strictEqual(typeof resKsGet.json.enabled, 'boolean');
+
+        const resKsPost = await httpRequest({
+            port,
+            path: '/api/fenix/killswitch',
+            method: 'POST',
+            headers: authHeaders,
+            body: { enabled: true },
+        });
+        assert.strictEqual(resKsPost.status, 200);
+        assert.strictEqual(resKsPost.json.enabled, true);
+
+        // Reset killswitch back to false
+        await httpRequest({
+            port,
+            path: '/api/fenix/killswitch',
+            method: 'POST',
+            headers: authHeaders,
+            body: { enabled: false },
+        });
+
+        // Test Ping route
+        const resPing = await httpRequest({
+            port,
+            path: '/api/fenix/ping',
+            method: 'POST',
+            headers: authHeaders,
+        });
+        assert.strictEqual(resPing.status, 200);
+        assert.ok(resPing.json.status === 'started' || resPing.json.status === 'already_running');
     } finally {
         server.close();
     }

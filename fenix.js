@@ -1258,7 +1258,8 @@ function status() {
             addedAt: a.addedAt || 0, exhausted: exhausted(a, nowMs),
         })),
         servers: (s.servers || []).map((x) => ({ country: x.country, name: x.name, ms: s.pings[x.country] ?? null })),
-        pingsAt: Number(s.pings.at) || 0,
+        pings: s.pings || {},
+        pingsAt: Number(s.pings && s.pings.at) || 0,
         serversAt: s.serversAt || 0,
         exitSeen: s.exitSeen,
         // The e-mail the code went to, so a reopened window lands on the code step, not the form. A
