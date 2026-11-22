@@ -42,6 +42,16 @@
   -webkit-user-drag: none;
 }
 
+/* Universal hidden enforcement */
+[hidden],
+[hidden="true"],
+.fnx-drawer-overlay[hidden],
+.fnx-sheet[hidden],
+.fnx-alert-banner[hidden],
+.fnx-alert-btn[hidden] {
+  display: none !important;
+}
+
 html, body {
   width: 100%;
   height: 100%;
@@ -312,6 +322,10 @@ html, body {
   animation: slideDown 0.2s ease-out;
 }
 
+.fnx-alert-banner[hidden] {
+  display: none !important;
+}
+
 .fnx-alert-banner.is-warn {
   background: rgba(255, 179, 0, 0.12);
   border-color: rgba(255, 179, 0, 0.3);
@@ -532,6 +546,10 @@ html, body {
   animation: slideUp 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
+.fnx-sheet[hidden] {
+  display: none !important;
+}
+
 .fnx-sheet-top {
   height: 52px;
   padding: 0 16px;
@@ -621,6 +639,10 @@ html, body {
   z-index: 100;
   display: flex;
   animation: fadeIn 0.2s ease;
+}
+
+.fnx-drawer-overlay[hidden] {
+  display: none !important;
 }
 
 .fnx-drawer-panel {

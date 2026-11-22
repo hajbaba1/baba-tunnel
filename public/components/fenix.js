@@ -44,6 +44,24 @@
     const gb = (b) => (b == null ? '—' : fa((b / 1073741824).toFixed(b >= 10 * 1073741824 ? 0 : 1)));
     const ms = (v) => `${fa(v)} میلی‌ثانیه`;
 
+    function quotaBytes(q) {
+        if (!q) return null;
+        if (typeof q === 'number') return q;
+        if (typeof q === 'object') {
+            if (q.unlimited) return 'unlimited';
+            if (q.remaining != null) return q.remaining;
+            if (q.limit != null) return q.limit;
+        }
+        return null;
+    }
+
+    function formatQuota(q) {
+        const bytes = quotaBytes(q);
+        if (bytes === 'unlimited') return 'نامحدود';
+        if (bytes == null) return '—';
+        return `${gb(bytes)} گیگابایت`;
+    }
+
     // ── State ──────────────────────────────────────────────────────────────
     const st = {
         data: null,            // last GET /api/fenix response
@@ -297,6 +315,7 @@
         const sheet = $('fnx-server-sheet');
         if (sheet) {
             sheet.hidden = false;
+            sheet.style.display = 'flex';
             renderServerList();
             const input = $('fnx-server-search');
             if (input) { input.value = ''; input.focus(); }
@@ -306,7 +325,10 @@
     function closeServerSheet() {
         st.serverSheetOpen = false;
         const sheet = $('fnx-server-sheet');
-        if (sheet) sheet.hidden = true;
+        if (sheet) {
+            sheet.hidden = true;
+            sheet.style.display = 'none';
+        }
     }
 
     function openDrawer(tab = 'accounts') {
@@ -315,6 +337,7 @@
         const drawer = $('fnx-drawer');
         if (drawer) {
             drawer.hidden = false;
+            drawer.style.display = 'flex';
             switchDrawerTab(tab);
         }
     }
@@ -322,7 +345,10 @@
     function closeDrawer() {
         st.drawerOpen = false;
         const drawer = $('fnx-drawer');
-        if (drawer) drawer.hidden = true;
+        if (drawer) {
+            drawer.hidden = true;
+            drawer.style.display = 'none';
+        }
     }
 
     function switchDrawerTab(tab) {
@@ -475,14 +501,19 @@
         const fill = $('fnx-quota-fill');
         const acc = activeAccount();
 
-        if (acc && acc.quota != null) {
-            const left = acc.quota;
-            const total = 50 * 1073741824; // 50 GB standard
-            const percent = Math.max(0, Math.min(100, (left / total) * 100));
-            if (val) val.textContent = `${gb(left)} گیگابایت باقی‌مانده`;
-            if (fill) fill.style.width = `${percent}%`;
+        const qb = acc ? quotaBytes(acc.quota) : null;
+        if (acc && qb !== null) {
+            if (qb === 'unlimited') {
+                if (val) val.textContent = 'سهمیه نامحدود';
+                if (fill) fill.style.width = '100%';
+            } else {
+                const total = (acc.quota && acc.quota.limit) || (50 * 1073741824);
+                const percent = Math.max(0, Math.min(100, (qb / total) * 100));
+                if (val) val.textContent = `${gb(qb)} گیگابایت باقی‌مانده`;
+                if (fill) fill.style.width = `${percent}%`;
+            }
         } else {
-            if (val) val.textContent = acc ? '۵۰ گیگابایت (رایگان)' : '۵۰ گیگابایت ماهانه با حساب فایرفاکس';
+            if (val) val.textContent = acc ? '۵۰ گیگابایت ماهانه' : '۵۰ گیگابایت ماهانه با حساب فایرفاکس';
             if (fill) fill.style.width = '100%';
         }
     }
@@ -546,7 +577,7 @@
                     </div>
                     <div class="fnx-sub-line">
                       <span>سهمیه باقی‌مانده:</span>
-                      <strong>${gb(a.quota)} گیگابایت</strong>
+                      <strong>${formatQuota(a.quota)}</strong>
                     </div>
                     <div style="margin-top:10px;display:flex;justify-content:flex-end;">
                       <button type="button" class="fnx-btn-danger" data-signout="${esc(a.id)}">خروج از حساب</button>
@@ -817,6 +848,30 @@
         // Drawer close button
         const closeDrawerBtn = $('fnx-close-drawer');
         if (closeDrawerBtn) closeDrawerBtn.onclick = () => closeDrawer();
+
+        // Close drawer on backdrop overlay click
+        const drawer = $('fnx-drawer');
+        if (drawer) {
+            drawer.onclick = (e) => {
+                if (e.target === drawer) closeDrawer();
+            };
+        }
+
+        // Close server sheet on backdrop overlay click
+        const sheet = $('fnx-server-sheet');
+        if (sheet) {
+            sheet.onclick = (e) => {
+                if (e.target === sheet) closeServerSheet();
+            };
+        }
+
+        // Escape key to close any open sheet or drawer
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeDrawer();
+                closeServerSheet();
+            }
+        });
 
         // Drawer tabs
         document.querySelectorAll('.fnx-dtab').forEach((b) => {
