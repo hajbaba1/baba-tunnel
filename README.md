@@ -54,9 +54,3 @@ Original Copyright (c) 2026 Ehsan (MLMVPN). Licensed under the BABA tunnel Attri
 > برای ادامه:
 > 1. روی **More info** (اطلاعات بیشتر) کلیک کنید.
 > 2. دکمهٔ **Run anyway** (در هر صورت اجرا شود) را بزنید.
-
-### تأمین باینری `xray.exe` (هستهٔ ارتباط)
-به دلیل حجم بالا و عدم قرارگیری باینری‌های اجرایی در گیت، فایل `xray.exe` در فایل نصبی asar بسته‌بندی نشده است. کاربر برای اولین اتصال کافی است فایل `xray.exe` را در یکی از مسیرهای زیر قرار دهد:
-- پوشهٔ `core/xray.exe` در محل نصب برنامه
-- پوشهٔ کاربری `%APPDATA%\baba-tunnel\core\xray.exe` (یا مسیر قدیمی `%APPDATA%\fenix-vpn\core\xray.exe`)
-- یا تعریف متغیر محیطی `BBT_XRAY_PATH` (یا `FENIX_XRAY_PATH`) در فایل `.env` یا ویندوز.
