@@ -1177,6 +1177,17 @@
     window.updateTraffic = updateTraffic;
 
     async function refreshTraffic() {
+        if (!isOn() && !isConnecting()) {
+            updateTraffic({
+                sentBytes: 0,
+                receivedBytes: 0,
+                uploadSpeed: 0,
+                downloadSpeed: 0,
+                connected: false
+            });
+            return;
+        }
+        if (document.hidden) return;
         try {
             const data = await api('traffic');
             if (data && data.ok) {
@@ -1212,8 +1223,12 @@
         build();
         refresh();
         refreshTraffic();
-        setInterval(() => { refresh(); }, 2000);
-        setInterval(() => { refreshTraffic(); }, 1000);
+        setInterval(() => {
+            if (!document.hidden) refresh();
+        }, 2500);
+        setInterval(() => {
+            refreshTraffic();
+        }, 1000);
     };
     window.initFenixModule = window.initBbtModule;
 })();

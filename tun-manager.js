@@ -161,7 +161,7 @@ function buildTunConfig({ socksPort = 10808, interfaceName = TUN_IFACE_NAME, ser
 
     return {
         log: {
-            level: 'warn',
+            level: 'error',
             timestamp: true,
         },
         inbounds: [
@@ -194,7 +194,6 @@ function buildTunConfig({ socksPort = 10808, interfaceName = TUN_IFACE_NAME, ser
             auto_detect_interface: true,
             default_domain_resolver: { server: 'local' },
             rules: [
-                { action: 'sniff' },
                 // Exclude destination server CIDRs so xray.exe's uplink is NEVER intercepted by TUN
                 { ip_cidr: excludeCidrs, outbound: 'direct' },
                 // Exclude engines and electron apps to prevent loopback

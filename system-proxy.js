@@ -1,18 +1,18 @@
 // --- system-proxy.js — Safe Windows system proxy manager with crash-resilient rollback ---
 //
-// Manages Windows system proxy settings strictly for Fenix's local proxy port.
-// CRITICAL SAFETY REQUIREMENTS:
+// Manages Windows system proxy settings strictly for Fenix/BBT local proxy port.
+// CRITICAL SAFETY & PERFORMANCE REQUIREMENTS:
 // 1. Backs up previous proxy state to disk BEFORE applying any change.
 // 2. Restores previous proxy state on normal process exit, SIGINT, SIGTERM, and uncaughtException.
 // 3. On startup, detects if a previous session crashed while proxy was active and rolls back automatically.
-// 4. Does NOT touch Windows Firewall or DNS settings. Full TUN is out of scope.
+// 4. In-memory caching & single execFile('reg.exe') to eliminate CPU spikes during periodic status polling.
 
 'use strict';
 
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { exec, execSync, execFile } = require('child_process');
+const { execSync, execFile, execFileSync } = require('child_process');
 
 function getBackupFile() {
     const base = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
@@ -20,38 +20,52 @@ function getBackupFile() {
     if (!fs.existsSync(dir)) {
         try {
             fs.mkdirSync(dir, { recursive: true });
-            // Legacy migration fallback
             const oldDir = path.join(base, 'fenix-vpn');
             const oldFile = path.join(oldDir, 'previous-proxy-state.json');
             const newFile = path.join(dir, 'previous-proxy-state.json');
             if (fs.existsSync(oldFile) && !fs.existsSync(newFile)) {
                 try { fs.copyFileSync(oldFile, newFile); } catch (_) {}
             }
-        } catch (e) {}
+        } catch (_) {}
     }
     return path.join(dir, 'previous-proxy-state.json');
 }
 
 const REG_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings';
 
-/** Read current Windows proxy settings via reg query */
-function readCurrentProxy() {
+let _cachedProxy = null;
+let _cachedTime = 0;
+const CACHE_TTL_MS = 2500;
+
+function parseRegOutput(raw) {
+    const enableMatch = (raw || '').match(/ProxyEnable\s+REG_DWORD\s+(0x[0-9a-fA-F]+|\d+)/);
+    const enabled = enableMatch ? (parseInt(enableMatch[1], 16) === 1 || parseInt(enableMatch[1], 10) === 1) : false;
+
+    const serverMatch = (raw || '').match(/ProxyServer\s+REG_SZ\s+([^\r\n]+)/);
+    const server = serverMatch ? serverMatch[1].trim() : '';
+
+    const overrideMatch = (raw || '').match(/ProxyOverride\s+REG_SZ\s+([^\r\n]+)/);
+    const override = overrideMatch ? overrideMatch[1].trim() : '<local>';
+
+    return { enabled, server, override };
+}
+
+/** Read current Windows proxy settings via a single reg.exe call with caching */
+function readCurrentProxy(force = false) {
+    const now = Date.now();
+    if (!force && _cachedProxy && (now - _cachedTime < CACHE_TTL_MS)) {
+        return Promise.resolve(_cachedProxy);
+    }
+
     return new Promise((resolve) => {
-        exec(`reg query "${REG_KEY}" /v ProxyEnable`, (err1, out1) => {
-            const enableMatch = (out1 || '').match(/ProxyEnable\s+REG_DWORD\s+(0x[0-9a-fA-F]+|\d+)/);
-            const enabled = enableMatch ? (parseInt(enableMatch[1], 16) === 1 || parseInt(enableMatch[1], 10) === 1) : false;
-
-            exec(`reg query "${REG_KEY}" /v ProxyServer`, (err2, out2) => {
-                const serverMatch = (out2 || '').match(/ProxyServer\s+REG_SZ\s+([^\r\n]+)/);
-                const server = serverMatch ? serverMatch[1].trim() : '';
-
-                exec(`reg query "${REG_KEY}" /v ProxyOverride`, (err3, out3) => {
-                    const overrideMatch = (out3 || '').match(/ProxyOverride\s+REG_SZ\s+([^\r\n]+)/);
-                    const override = overrideMatch ? overrideMatch[1].trim() : '<local>';
-
-                    resolve({ enabled, server, override });
-                });
-            });
+        execFile('reg.exe', ['query', REG_KEY], { windowsHide: true, timeout: 2000 }, (err, stdout) => {
+            if (err || !stdout) {
+                // If query fails, fall back to last cached or default
+                return resolve(_cachedProxy || { enabled: false, server: '', override: '<local>' });
+            }
+            _cachedProxy = parseRegOutput(stdout);
+            _cachedTime = Date.now();
+            resolve(_cachedProxy);
         });
     });
 }
@@ -59,33 +73,17 @@ function readCurrentProxy() {
 /** Synchronous read for crash / shutdown hooks */
 function readCurrentProxySync() {
     try {
-        const out1 = execSync(`reg query "${REG_KEY}" /v ProxyEnable`, { windowsHide: true, encoding: 'utf8' });
-        const enableMatch = out1.match(/ProxyEnable\s+REG_DWORD\s+(0x[0-9a-fA-F]+|\d+)/);
-        const enabled = enableMatch ? (parseInt(enableMatch[1], 16) === 1 || parseInt(enableMatch[1], 10) === 1) : false;
-
-        let server = '';
-        try {
-            const out2 = execSync(`reg query "${REG_KEY}" /v ProxyServer`, { windowsHide: true, encoding: 'utf8' });
-            const serverMatch = out2.match(/ProxyServer\s+REG_SZ\s+([^\r\n]+)/);
-            if (serverMatch) server = serverMatch[1].trim();
-        } catch (e) {}
-
-        let override = '<local>';
-        try {
-            const out3 = execSync(`reg query "${REG_KEY}" /v ProxyOverride`, { windowsHide: true, encoding: 'utf8' });
-            const overrideMatch = out3.match(/ProxyOverride\s+REG_SZ\s+([^\r\n]+)/);
-            if (overrideMatch) override = overrideMatch[1].trim();
-        } catch (e) {}
-
-        return { enabled, server, override };
-    } catch (e) {
-        return { enabled: false, server: '', override: '<local>' };
+        const out = execFileSync('reg.exe', ['query', REG_KEY], { windowsHide: true, encoding: 'utf8', timeout: 2000 });
+        _cachedProxy = parseRegOutput(out);
+        _cachedTime = Date.now();
+        return _cachedProxy;
+    } catch (_) {
+        return _cachedProxy || { enabled: false, server: '', override: '<local>' };
     }
 }
 
 /** Notify Windows network subsystem of proxy change */
 function refreshWindowsProxySettings() {
-    // Calls InternetSetOption (INTERNET_OPTION_SETTINGS_CHANGED = 39, INTERNET_OPTION_REFRESH = 37)
     const psCode = `
 $sig = @'
 [System.Runtime.InteropServices.DllImport("wininet.dll", SetLastError=true)]
@@ -99,26 +97,33 @@ if (-not ([System.Management.Automation.PSTypeName]"Win32.WinINet").Type) {
 `;
     try {
         const b64 = Buffer.from(psCode, 'utf16le').toString('base64');
-        execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', b64], { windowsHide: true }, () => {});
+        execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', b64], { windowsHide: true, timeout: 5000 }, () => {});
     } catch (_) {}
 }
 
 /** Apply proxy settings to registry */
 function applyProxy(enabled, server = '', override = '<local>;localhost;127.*;10.*') {
+    _cachedProxy = null; // Invalidate cache
+    _cachedTime = 0;
+
     return new Promise((resolve, reject) => {
         const val = enabled ? 1 : 0;
-        exec(`reg add "${REG_KEY}" /v ProxyEnable /t REG_DWORD /d ${val} /f`, (err1) => {
+        execFile('reg.exe', ['add', REG_KEY, '/v', 'ProxyEnable', '/t', 'REG_DWORD', '/d', String(val), '/f'], { windowsHide: true, timeout: 3000 }, (err1) => {
             if (err1) return reject(new Error(`Failed to set ProxyEnable: ${err1.message}`));
 
             if (enabled && server) {
-                exec(`reg add "${REG_KEY}" /v ProxyServer /t REG_SZ /d "${server}" /f`, (err2) => {
+                execFile('reg.exe', ['add', REG_KEY, '/v', 'ProxyServer', '/t', 'REG_SZ', '/d', server, '/f'], { windowsHide: true, timeout: 3000 }, (err2) => {
                     if (err2) return reject(new Error(`Failed to set ProxyServer: ${err2.message}`));
-                    exec(`reg add "${REG_KEY}" /v ProxyOverride /t REG_SZ /d "${override}" /f`, () => {
+                    execFile('reg.exe', ['add', REG_KEY, '/v', 'ProxyOverride', '/t', 'REG_SZ', '/d', override, '/f'], { windowsHide: true, timeout: 3000 }, () => {
+                        _cachedProxy = { enabled: true, server, override };
+                        _cachedTime = Date.now();
                         refreshWindowsProxySettings();
                         resolve({ ok: true, enabled: true, server, override });
                     });
                 });
             } else {
+                _cachedProxy = { enabled: false, server: '', override };
+                _cachedTime = Date.now();
                 refreshWindowsProxySettings();
                 resolve({ ok: true, enabled: false });
             }
@@ -129,15 +134,14 @@ function applyProxy(enabled, server = '', override = '<local>;localhost;127.*;10
 let activeChange = false;
 
 /**
- * Enable Windows system proxy for Fenix
- * @param {string} proxyAddress - e.g. "127.0.0.1:10809" (HTTP proxy) or "http=127.0.0.1:10809;https=127.0.0.1:10809;socks=127.0.0.1:10808"
+ * Enable Windows system proxy for Fenix/BBT
  */
 async function enable(proxyAddress = 'http=127.0.0.1:10809;https=127.0.0.1:10809;socks=127.0.0.1:10808') {
     const backupFile = getBackupFile();
 
     // 1. If we haven't already saved a backup in this session, save current state
     if (!fs.existsSync(backupFile)) {
-        const current = await readCurrentProxy();
+        const current = await readCurrentProxy(true);
         fs.writeFileSync(backupFile, JSON.stringify({
             savedAt: new Date().toISOString(),
             pid: process.pid,
@@ -145,7 +149,7 @@ async function enable(proxyAddress = 'http=127.0.0.1:10809;https=127.0.0.1:10809
         }, null, 2), 'utf8');
     }
 
-    // 2. Apply Fenix proxy
+    // 2. Apply proxy
     const result = await applyProxy(true, proxyAddress);
     activeChange = true;
     return result;
@@ -164,8 +168,8 @@ async function disable() {
             if (data && data.state) {
                 target = data.state;
             }
-        } catch (e) {}
-        try { fs.unlinkSync(backupFile); } catch (e) {}
+        } catch (_) {}
+        try { fs.unlinkSync(backupFile); } catch (_) {}
     }
 
     activeChange = false;
@@ -174,6 +178,7 @@ async function disable() {
 
 /** Synchronous rollback for exit hooks */
 function rollbackSync() {
+    _cachedProxy = null;
     const backupFile = getBackupFile();
     if (!fs.existsSync(backupFile)) return;
 
@@ -185,8 +190,8 @@ function rollbackSync() {
         if (target.enabled && target.server) {
             execSync(`reg add "${REG_KEY}" /v ProxyServer /t REG_SZ /d "${target.server}" /f`, { windowsHide: true });
         }
-        try { fs.unlinkSync(backupFile); } catch (e) {}
-    } catch (e) {}
+        try { fs.unlinkSync(backupFile); } catch (_) {}
+    } catch (_) {}
 }
 
 /** Crash recovery check: called on application startup */

@@ -148,7 +148,7 @@ async function start(uriConfig) {
         const assetDir = path.dirname(bin);
         const childEnv = Object.assign({}, process.env, {
             XRAY_LOCATION_ASSET: assetDir,
-            GOMAXPROCS: '2',
+            GOMAXPROCS: '1',
         });
 
         try {
@@ -212,6 +212,7 @@ async function start(uriConfig) {
 
 /** Stop Xray */
 async function stop() {
+    try { require('./xray-stats').forget(); } catch (_) {}
     if (xrayProcess) {
         try {
             xrayProcess.kill('SIGTERM');
