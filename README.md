@@ -1,12 +1,12 @@
-# Fenix Standalone VPN
+# BABA Tunnel (BBT)
 
-Fenix Standalone is a standalone, lightweight Electron and Node.js VPN client driving Mozilla VPN / Fastly MASQUE endpoints through an Xray-core proxy pipeline.
+BABA Tunnel (BBT) is a standalone, lightweight Electron and Node.js VPN client driving Mozilla VPN / Fastly MASQUE endpoints through an Xray-core proxy pipeline.
 
 ## Attribution Notice
 Based on MLMVPN for Windows:  
 https://github.com/mlmvpn/mlmvpn_windows
 
-Original Copyright (c) 2026 Ehsan (MLMVPN). Licensed under the MLMVPN Attribution License 1.0 (see [LICENSE](LICENSE)).
+Original Copyright (c) 2026 Ehsan (MLMVPN). Licensed under the BABA tunnel Attribution Licence 1.0 (see [LICENSE](LICENSE)).
 
 ---
 
@@ -44,8 +44,8 @@ Original Copyright (c) 2026 Ehsan (MLMVPN). Licensed under the MLMVPN Attributio
 ## نصب و اجرای فایل نصبی در ویندوز (Windows Installer & SmartScreen)
 
 ### فایل‌های تولیدشده در پوشهٔ `dist/`
-- **نصب‌کنندهٔ رسمی ویندوز (NSIS Installer):** `dist/Fenix VPN Setup 1.0.0.exe` (~85.7 MB)
-- **نسخهٔ پرتابل بدون نیاز به نصب (Portable):** `dist/Fenix VPN 1.0.0.exe` (~78.7 MB)
+- **نصب‌کنندهٔ رسمی ویندوز (NSIS Installer):** `dist/BABA Tunnel Setup 1.0.0.exe`
+- **نسخهٔ پرتابل بدون نیاز به نصب (Portable):** `dist/BABA Tunnel 1.0.0.exe`
 
 ### هشدار ویندوز اسمارت‌اسکرین (Windows SmartScreen Notice)
 > **نکته برای کاربران تست ویندوز:**  
@@ -58,5 +58,5 @@ Original Copyright (c) 2026 Ehsan (MLMVPN). Licensed under the MLMVPN Attributio
 ### تأمین باینری `xray.exe` (هستهٔ ارتباط)
 به دلیل حجم بالا و عدم قرارگیری باینری‌های اجرایی در گیت، فایل `xray.exe` در فایل نصبی asar بسته‌بندی نشده است. کاربر برای اولین اتصال کافی است فایل `xray.exe` را در یکی از مسیرهای زیر قرار دهد:
 - پوشهٔ `core/xray.exe` در محل نصب برنامه
-- پوشهٔ کاربری `%APPDATA%\fenix-vpn\core\xray.exe`
-- یا تعریف متغیر محیطی `FENIX_XRAY_PATH` در فایل `.env` یا ویندوز.
+- پوشهٔ کاربری `%APPDATA%\baba-tunnel\core\xray.exe` (یا مسیر قدیمی `%APPDATA%\fenix-vpn\core\xray.exe`)
+- یا تعریف متغیر محیطی `BBT_XRAY_PATH` (یا `FENIX_XRAY_PATH`) در فایل `.env` یا ویندوز.

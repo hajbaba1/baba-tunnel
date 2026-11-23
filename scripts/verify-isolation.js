@@ -55,7 +55,7 @@ for (const file of jsFiles) {
     while ((match = requireRegex.exec(content)) !== null) {
         const reqTarget = match[1];
 
-        if (BUILTINS.has(reqTarget)) {
+        if (BUILTINS.has(reqTarget) || reqTarget.startsWith('node:')) {
             continue;
         }
 

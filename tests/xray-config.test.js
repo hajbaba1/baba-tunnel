@@ -5,7 +5,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const fenix = require('../fenix');
+const bbt = require('../bbt-core');
+const fenix = bbt;
 const xrayRunner = require('../xray-runner');
 
 test('xray-config: structure and local binding from fixed inputs', () => {
@@ -13,11 +14,19 @@ test('xray-config: structure and local binding from fixed inputs', () => {
     const addresses = ['151.101.1.1', '151.101.65.1'];
     const token = 'sample-jwt-bearer-pass';
 
-    const cfg = fenix.config(srv, addresses, token);
+    const cfg = bbt.config(srv, addresses, token);
 
     // Verify inbounds
     assert.ok(Array.isArray(cfg.inbounds), 'inbounds must be an array');
-    assert.strictEqual(cfg.inbounds.length >= 1, true, 'At least one inbound configured');
+    assert.strictEqual(cfg.inbounds.length >= 2, true, 'At least two inbounds configured (SOCKS and HTTP)');
+
+    const socksIn = cfg.inbounds.find((i) => i.tag === 'socks-in');
+    assert.ok(socksIn, 'Must include socks-in inbound');
+    assert.strictEqual(socksIn.port, 10808, 'SOCKS port must be 10808');
+
+    const httpIn = cfg.inbounds.find((i) => i.tag === 'http-in');
+    assert.ok(httpIn, 'Must include http-in inbound');
+    assert.strictEqual(httpIn.port, 10809, 'HTTP port must be 10809');
 
     for (const inbound of cfg.inbounds) {
         assert.strictEqual(inbound.listen, '127.0.0.1', 'Inbound must strictly listen on 127.0.0.1');
@@ -26,11 +35,11 @@ test('xray-config: structure and local binding from fixed inputs', () => {
 
     // Verify outbounds
     assert.ok(Array.isArray(cfg.outbounds), 'outbounds must be an array');
-    const fenixOutbound = cfg.outbounds.find((o) => o.tag === 'fenix-0');
-    assert.ok(fenixOutbound, 'Must include fenix-0 outbound');
-    assert.strictEqual(fenixOutbound.protocol, 'http', 'Must use HTTP CONNECT proxy protocol');
+    const bbtOutbound = cfg.outbounds.find((o) => o.tag === 'bbt-0' || o.tag === 'fenix-0');
+    assert.ok(bbtOutbound, 'Must include bbt-0 outbound');
+    assert.strictEqual(bbtOutbound.protocol, 'http', 'Must use HTTP CONNECT proxy protocol');
     assert.strictEqual(
-        fenixOutbound.settings.headers['Proxy-Authorization'],
+        bbtOutbound.settings.headers['Proxy-Authorization'],
         'Bearer ' + token,
         'Outbound must pass bearer token in Proxy-Authorization header'
     );

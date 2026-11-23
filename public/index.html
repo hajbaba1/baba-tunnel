@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Fenix VPN</title>
+  <title>BABA Tunnel</title>
   <link rel="stylesheet" href="/assets/phosphor/regular/style.css">
   <link rel="stylesheet" href="/assets/phosphor/bold/style.css">
   <link rel="stylesheet" href="/assets/phosphor/fill/style.css">
@@ -23,7 +23,7 @@
       color: var(--mv-label);
       user-select: none;
     }
-    #ls-fenix {
+    #ls-bbt, #ls-fenix {
       width: 100%;
       height: 100%;
       display: flex;
@@ -93,7 +93,7 @@
   </style>
 </head>
 <body>
-  <div id="ls-fenix"></div>
+  <div id="ls-bbt"></div>
   <div id="fenix-toast-container"></div>
 
   <dialog id="fenix-modal" class="fenix-dialog">
@@ -152,10 +152,12 @@
 
     window.refreshSystemProxy = function() {};
   </script>
-  <script src="/components/fenix.js"></script>
+  <script src="/components/bbt.js"></script>
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      if (typeof window.initFenixModule === 'function') {
+      if (typeof window.initBbtModule === 'function') {
+        window.initBbtModule();
+      } else if (typeof window.initFenixModule === 'function') {
         window.initFenixModule();
       }
     });

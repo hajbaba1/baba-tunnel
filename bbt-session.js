@@ -21,17 +21,18 @@
 
 'use strict';
 
-const fx = require('./fenix');
+const fx = require('./bbt-core');
 
 const TICK_MS = 20 * 1000;   // how often the live connection is looked at; wall-clock, so sleep cannot fool it
 const RETRY_S = 60;          // a renewal that failed is tried again this soon, until the pass ends
 const MIN_LEAD_S = 120;      // never renew later than this before the pass ends
 const STILL_DOWN_MS = 15 * 1000;   // an engine gone this long under a live connection has ended it
 
-/** The config FENIX builds: Xray's JSON with FENIX's own first outbound. */
-function isFenixUri(uri) {
-    return typeof uri === 'string' && uri.trim().startsWith('{') && /"tag"\s*:\s*"fenix-0"/.test(uri);
+/** The config BABA Tunnel builds: Xray's JSON with BBT's own first outbound. */
+function isBbtUri(uri) {
+    return typeof uri === 'string' && uri.trim().startsWith('{') && /"tag"\s*:\s*"(?:bbt|fenix)-0"/.test(uri);
 }
+const isFenixUri = isBbtUri;
 
 /** When to fetch the next pass: three quarters of the way through this one, and never too late. */
 function renewAtFor(p, nowS) {
@@ -132,10 +133,10 @@ function create(deps) {
             reconnectAttempts = 0;
         }
         if (s && s.phase === 'connecting' && !isReconnect) {
-            throw new fx.FenixError('یک اتصال در جریان است — صبر کنید یا لغو کنید.', 'BUSY');
+            throw new fx.BbtError('یک اتصال در جریان است — صبر کنید یا لغو کنید.', 'BUSY');
         }
         if (s && s.phase === 'stopping') {
-            throw new fx.FenixError('اتصال در حال قطع شدن است — کمی صبر کنید.', 'BUSY');
+            throw new fx.BbtError('اتصال در حال قطع شدن است — کمی صبر کنید.', 'BUSY');
         }
 
         // Remember the selected location so auto-reconnect can preserve it
@@ -205,7 +206,7 @@ function create(deps) {
                 emit();
                 return status();
             }
-            throw new fx.FenixError(`سرور ${countryName(s && s.server ? s.server.country : '')} وصل شد ولی داده‌ای رد نکرد — کشور دیگری را امتحان کنید.`, 'NO_DATA');
+            throw new fx.BbtError(`سرور ${countryName(s && s.server ? s.server.country : '')} وصل شد ولی داده‌ای رد نکرد — کشور دیگری را امتحان کنید.`, 'NO_DATA');
         } catch (e) {
             if (!alive()) return { cancelled: true };
             // The change failed before its config reached the engine: the old connection is still
@@ -285,7 +286,7 @@ function create(deps) {
         const uri = d.liveUri();
         try {
             // A crashed engine counts too: its tunnel and proxy must still come down.
-            if ((had && had.uri && uri === had.uri) || isFenixUri(uri)) await stopNow();
+            if ((had && had.uri && uri === had.uri) || isBbtUri(uri)) await stopNow();
         } finally {
             s = null;
             last = { at: d.now(), why: 'user' };
@@ -442,4 +443,4 @@ function create(deps) {
     };
 }
 
-module.exports = { create, isFenixUri, renewAtFor, TICK_MS, RETRY_S, STILL_DOWN_MS };
+module.exports = { create, isBbtUri, isFenixUri, renewAtFor, TICK_MS, RETRY_S, STILL_DOWN_MS };

@@ -1,7 +1,7 @@
 {
-  "name": "fenix-vpn",
+  "name": "baba-tunnel",
   "version": "1.0.0",
-  "description": "Fenix VPN Standalone — Powered by Mozilla VPN MASQUE proxy infrastructure and Xray-core",
+  "description": "BABA Tunnel (BBT) — Powered by Mozilla VPN MASQUE proxy infrastructure and Xray-core",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -12,8 +12,13 @@
     "build": "electron-builder --win"
   },
   "build": {
-    "appId": "org.fenix.vpn.standalone",
-    "productName": "Fenix VPN",
+    "appId": "org.baba.tunnel",
+    "productName": "BABA Tunnel",
+    "compression": "maximum",
+    "electronLanguages": [
+      "fa",
+      "en"
+    ],
     "directories": {
       "output": "dist"
     },
@@ -29,13 +34,9 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Fenix VPN"
+      "shortcutName": "BABA Tunnel"
     },
     "extraFiles": [
-      {
-        "from": "core/",
-        "to": "core/"
-      },
       {
         "from": "LICENSE",
         "to": "LICENSE"
@@ -45,21 +46,10 @@
         "to": "THIRD_PARTY_NOTICES.md"
       }
     ],
-    "extraResources": [
-      {
-        "from": "core/",
-        "to": "core/"
-      }
-    ],
     "files": [
-      "**/*",
-      "!core/**",
-      "!tests/**",
-      "!scripts/**",
-      "!docs/**",
-      "!.env*",
-      "!*.log",
-      "!dist/**"
+      "*.js",
+      "public/**/*",
+      "package.json"
     ]
   },
   "dependencies": {

@@ -1,8 +1,8 @@
-// --- kill-switch.js — VPN Kill Switch (Leak Protection) for Fenix Standalone ---
+// --- kill-switch.js — VPN Kill Switch (Leak Protection) for BABA Tunnel (BBT) ---
 //
 // Prevents unencrypted traffic leaks when the VPN connection drops or is inactive.
 // When enabled:
-// - If VPN is connected ('on'): traffic routes securely through Fenix Xray (127.0.0.1:10809).
+// - If VPN is connected ('on'): traffic routes securely through BBT Xray (127.0.0.1:10809).
 // - If VPN is disconnected or drops ('off', 'stopping', 'failed'): routes to blackhole (127.0.0.1:1).
 // - When disabled: restores normal Windows proxy / direct connection.
 
@@ -15,9 +15,18 @@ const systemProxy = require('./system-proxy');
 
 function getKillSwitchConfigFile() {
     const base = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
-    const dir = path.join(base, 'fenix-vpn');
+    const dir = path.join(base, 'baba-tunnel');
     if (!fs.existsSync(dir)) {
-        try { fs.mkdirSync(dir, { recursive: true }); } catch (e) {}
+        try {
+            fs.mkdirSync(dir, { recursive: true });
+            // Legacy migration fallback
+            const oldDir = path.join(base, 'fenix-vpn');
+            const oldFile = path.join(oldDir, 'kill-switch.json');
+            const newFile = path.join(dir, 'kill-switch.json');
+            if (fs.existsSync(oldFile) && !fs.existsSync(newFile)) {
+                try { fs.copyFileSync(oldFile, newFile); } catch (_) {}
+            }
+        } catch (e) {}
     }
     return path.join(dir, 'kill-switch.json');
 }

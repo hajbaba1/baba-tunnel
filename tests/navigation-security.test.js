@@ -1,12 +1,12 @@
 // --- tests/navigation-security.test.js ---
-// Tests strict URL navigation hardening in main.js and fenix.js (Step 5.1).
+// Tests strict URL navigation hardening in main.js and bbt-core.js (Step 5.1).
 
 'use strict';
 
 const test = require('node:test');
 const assert = require('node:assert');
 const { isAllowedNavigationUrl } = require('../main');
-const { isAllowedMozillaUrl, isAllowedMozillaHost } = require('../fenix');
+const { isAllowedMozillaUrl, isAllowedMozillaHost } = require('../bbt-core');
 
 test('Step 5.1: Main process local navigation hardening', async (t) => {
     const port = 3000;

@@ -5,7 +5,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const fenixSessionModule = require('../fenix-session');
+const bbtSessionModule = require('../bbt-session');
 
 test('auto-reconnect: maintains selected country and triggers reconnect on unexpected drop', async () => {
     let reconnectCalledWith = null;
@@ -13,7 +13,7 @@ test('auto-reconnect: maintains selected country and triggers reconnect on unexp
     let liveUriState = '{"test":true}';
     let emitted = [];
 
-    const session = fenixSessionModule.create({
+    const session = bbtSessionModule.create({
         start: async (uri) => {
             liveUriState = uri;
             runningState = true;
@@ -50,7 +50,7 @@ test('auto-reconnect: maintains selected country and triggers reconnect on unexp
 });
 
 test('auto-reconnect: manual user disconnect cancels reconnect and resets desiredCountry', async () => {
-    const session = fenixSessionModule.create({
+    const session = bbtSessionModule.create({
         start: async () => {},
         stop: async () => {},
         verify: async () => ({ ok: true }),
@@ -68,7 +68,7 @@ test('auto-reconnect: manual user disconnect cancels reconnect and resets desire
 });
 
 test('auto-reconnect: toggle enables and disables autoReconnect setting', () => {
-    const session = fenixSessionModule.create({
+    const session = bbtSessionModule.create({
         start: async () => {},
         stop: async () => {},
         verify: async () => ({ ok: true }),

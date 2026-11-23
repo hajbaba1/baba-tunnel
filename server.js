@@ -1,6 +1,6 @@
-// --- server.js — Minimal Hardened Local Server for Fenix Standalone ---
+// --- server.js — Minimal Hardened Local Server for BABA Tunnel (BBT) ---
 //
-// Serves static assets from public/ and mounts fenix-routes.js.
+// Serves static assets from public/ and mounts bbt-routes.js.
 // Strictly isolated to 127.0.0.1 with Host, Origin, and per-session token validation.
 
 'use strict';
@@ -11,7 +11,7 @@ const http = require('http');
 const crypto = require('crypto');
 const express = require('express');
 const { EventEmitter } = require('events');
-const { createFenixRouter } = require('./fenix-routes');
+const { createBbtRouter, createFenixRouter } = require('./bbt-routes');
 
 function createApp(sessionToken = crypto.randomBytes(24).toString('hex')) {
     const app = express();
@@ -48,8 +48,13 @@ function createApp(sessionToken = crypto.randomBytes(24).toString('hex')) {
             });
         }
 
-        // Token check: require x-fenix-token header or ?token= query parameter
-        const clientToken = req.headers['x-fenix-token'] || req.query.token;
+        // Allow read-only traffic endpoint for live stats widget
+        if (req.path === '/traffic' || req.path === '/bbt/traffic' || req.path === '/fenix/traffic') {
+            return next();
+        }
+
+        // Token check: require x-bbt-token or x-fenix-token header or ?token= query parameter
+        const clientToken = req.headers['x-bbt-token'] || req.headers['x-fenix-token'] || req.query.token;
         if (!clientToken || clientToken !== sessionToken) {
             return res.status(403).json({
                 ok: false,
@@ -60,15 +65,15 @@ function createApp(sessionToken = crypto.randomBytes(24).toString('hex')) {
         next();
     });
 
-    // 3. Mount Fenix API routes
-    app.use(createFenixRouter(eventEmitter));
+    // 3. Mount BABA Tunnel (BBT) API routes
+    app.use(createBbtRouter ? createBbtRouter(eventEmitter) : createFenixRouter(eventEmitter));
 
     // 4. Serve index.html with injected session token
     const indexPath = path.join(__dirname, 'public', 'index.html');
     app.get(['/', '/index.html'], (req, res) => {
         try {
             let html = fs.readFileSync(indexPath, 'utf8');
-            const tokenScript = `<script>window.__FENIX_TOKEN__ = ${JSON.stringify(sessionToken)};</script>`;
+            const tokenScript = `<script>window.__BBT_TOKEN__ = ${JSON.stringify(sessionToken)}; window.__FENIX_TOKEN__ = window.__BBT_TOKEN__;</script>`;
             html = html.replace('</head>', `${tokenScript}\n</head>`);
             res.setHeader('Content-Type', 'text/html; charset=utf-8');
             res.setHeader('Cache-Control', 'no-store');
@@ -113,10 +118,10 @@ if (require.main === module) {
     const initialPort = portArg ? parseInt(portArg.split('=')[1], 10) : 3000;
 
     startServer(initialPort).then(({ port, sessionToken }) => {
-        console.log(`[Fenix Standalone] Hardened local server running at http://127.0.0.1:${port}`);
-        console.log(`[Fenix Standalone] Session token generated`);
+        console.log(`[BABA Tunnel] Hardened local server running at http://127.0.0.1:${port}`);
+        console.log(`[BABA Tunnel] Session token generated`);
     }).catch((err) => {
-        console.error('[Fenix Standalone] Failed to start server:', err.message);
+        console.error('[BABA Tunnel] Failed to start server:', err.message);
         process.exit(1);
     });
 }

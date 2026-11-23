@@ -12,13 +12,22 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { exec, execSync } = require('child_process');
+const { exec, execSync, execFile } = require('child_process');
 
 function getBackupFile() {
     const base = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
-    const dir = path.join(base, 'fenix-vpn');
+    const dir = path.join(base, 'baba-tunnel');
     if (!fs.existsSync(dir)) {
-        try { fs.mkdirSync(dir, { recursive: true }); } catch (e) {}
+        try {
+            fs.mkdirSync(dir, { recursive: true });
+            // Legacy migration fallback
+            const oldDir = path.join(base, 'fenix-vpn');
+            const oldFile = path.join(oldDir, 'previous-proxy-state.json');
+            const newFile = path.join(dir, 'previous-proxy-state.json');
+            if (fs.existsSync(oldFile) && !fs.existsSync(newFile)) {
+                try { fs.copyFileSync(oldFile, newFile); } catch (_) {}
+            }
+        } catch (e) {}
     }
     return path.join(dir, 'previous-proxy-state.json');
 }
@@ -77,17 +86,21 @@ function readCurrentProxySync() {
 /** Notify Windows network subsystem of proxy change */
 function refreshWindowsProxySettings() {
     // Calls InternetSetOption (INTERNET_OPTION_SETTINGS_CHANGED = 39, INTERNET_OPTION_REFRESH = 37)
-    const psCmd = [
-        '$signature = @"',
-        '[DllImport("wininet.dll", SetLastError = true, CharSet = CharSet.Auto)]',
-        'public static extern bool InternetSetOption(IntPtr hInternet, int dwOption, IntPtr lpBuffer, int dwBufferLength);',
-        '"@;',
-        '$type = Add-Type -MemberDefinition $signature -Name WinINet -Namespace Win32 -PassThru -ErrorAction SilentlyContinue;',
-        '[Win32.WinINet]::InternetSetOption([IntPtr]::Zero, 39, [IntPtr]::Zero, 0);',
-        '[Win32.WinINet]::InternetSetOption([IntPtr]::Zero, 37, [IntPtr]::Zero, 0);'
-    ].join(' ');
-
-    exec(`powershell.exe -NoProfile -NonInteractive -Command "${psCmd}"`, { windowsHide: true }, () => {});
+    const psCode = `
+$sig = @'
+[System.Runtime.InteropServices.DllImport("wininet.dll", SetLastError=true)]
+public static extern bool InternetSetOption(System.IntPtr h, int o, System.IntPtr b, int l);
+'@
+if (-not ([System.Management.Automation.PSTypeName]"Win32.WinINet").Type) {
+    Add-Type -MemberDefinition $sig -Name WinINet -Namespace Win32 -ErrorAction SilentlyContinue
+}
+[Win32.WinINet]::InternetSetOption([System.IntPtr]::Zero, 39, [System.IntPtr]::Zero, 0)
+[Win32.WinINet]::InternetSetOption([System.IntPtr]::Zero, 37, [System.IntPtr]::Zero, 0)
+`;
+    try {
+        const b64 = Buffer.from(psCode, 'utf16le').toString('base64');
+        execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', b64], { windowsHide: true }, () => {});
+    } catch (_) {}
 }
 
 /** Apply proxy settings to registry */

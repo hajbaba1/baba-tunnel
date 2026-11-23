@@ -1,4 +1,4 @@
-// --- crypto-store.js — Windows DPAPI credential protection for Fenix Standalone ---
+// --- crypto-store.js — Windows DPAPI credential protection for BABA Tunnel (BBT) ---
 //
 // Secures tokens at rest using Windows DPAPI (Data Protection API) scoped to the current user.
 // Uses Electron's native `safeStorage` when running in Electron, and falls back to PowerShell

@@ -1,7 +1,7 @@
-// --- Fenix Standalone VPN — Compact Card Interface ---
+// --- BABA Tunnel (BBT) — Compact Card Interface ---
 //
-// Modern compact single-card layout (inspired by sleek modern VPN clients).
-// Interacts with /api/fenix/* and /api/v2ray/* backend endpoints.
+// Modern compact single-card layout.
+// Interacts with /api/bbt/* and /api/v2ray/* backend endpoints.
 
 (function () {
     'use strict';
@@ -64,7 +64,7 @@
 
     // ── State ──────────────────────────────────────────────────────────────
     const st = {
-        data: null,            // last GET /api/fenix response
+        data: null,            // last GET /api/bbt response
         busy: '',              // in-flight action: 'connect' | 'stop' | 'web' | 'challenge' | 'quota' | 'signout'
         connecting: false,
         stopping: false,
@@ -81,11 +81,14 @@
         log: [],
     };
 
-    const PREF = 'fenix_prefs';
+    const PREF = 'bbt_prefs';
     const store = () => window.PersistentStorage || localStorage;
     function prefs() {
         let p = {};
-        try { p = JSON.parse(store().getItem(PREF) || '{}') || {}; } catch (e) { p = {}; }
+        try {
+            const raw = store().getItem(PREF) || store().getItem('fenix_prefs') || '{}';
+            p = JSON.parse(raw) || {};
+        } catch (e) { p = {}; }
         const coverage = ['proxy', 'system', 'tunnel'].includes(p.coverage) ? p.coverage : 'system';
         return {
             country: /^[A-Z]{2}$/.test(p.country || '') ? p.country : 'fastest',
@@ -94,7 +97,11 @@
         };
     }
     function setPrefs(patch) {
-        try { store().setItem(PREF, JSON.stringify(Object.assign({}, prefs(), patch))); } catch (e) {}
+        try {
+            const merged = Object.assign({}, prefs(), patch);
+            store().setItem(PREF, JSON.stringify(merged));
+            store().setItem('fenix_prefs', JSON.stringify(merged));
+        } catch (e) {}
     }
 
     const D = () => st.data || {};
@@ -110,7 +117,8 @@
 
     // ── API Communication ──────────────────────────────────────────────────
     async function api(p, body) {
-        const headers = { 'x-fenix-token': window.__FENIX_TOKEN__ || '' };
+        const token = window.__BBT_TOKEN__ || window.__FENIX_TOKEN__ || '';
+        const headers = { 'x-bbt-token': token, 'x-fenix-token': token };
         if (body !== undefined) headers['Content-Type'] = 'application/json';
         const r = await fetch('/api/' + p, {
             method: body !== undefined ? 'POST' : 'GET',
@@ -137,11 +145,11 @@
     // ── Actions ────────────────────────────────────────────────────────────
     async function refresh(force) {
         try {
-            const d = await api('fenix');
+            const d = await api('bbt');
             st.data = d;
             // auto-trigger server fetch on first load
             if (!st.data.servers && !st.busy) {
-                api('fenix/servers', { force: true }).catch(() => {});
+                api('bbt/servers', { force: true }).catch(() => {});
             }
             paint();
         } catch (e) {
@@ -176,7 +184,7 @@
         paint();
 
         try {
-            const r = await api('fenix/connect', { country: p.country, accountId: acc.id });
+            const r = await api('bbt/connect', { country: p.country, accountId: acc.id });
             st.data = Object.assign({}, st.data, { session: r.session });
             const ses = r.session;
             log(`✅ متصل شد — خروج از ${countryName(ses.exit && ses.exit.loc) || countryName(p.country)}`);
@@ -206,7 +214,7 @@
         paint();
         log('— قطع اتصال…');
         try {
-            await api('fenix/stop', {});
+            await api('bbt/stop', {});
             log('قطع شد.');
         } catch (e) {
             log(`✗ خطا در قطع اتصال: ${e.message}`);
@@ -222,18 +230,18 @@
             if (kind === 'tunnel') {
                 await api('v2ray/sysproxy', { enable: false }).catch(() => {});
                 await api('v2ray/tun', { enabled: true });
-                log('تونل کامل سیستم فعال شد.');
+                log('تونل کامل و ضد نشت فعال شد (پوشش تمام پکت‌ها و بستن کامل نشت WebRTC/IPv6).');
             } else if (kind === 'system') {
                 await api('v2ray/tun', { enabled: false }).catch(() => {});
                 await api('v2ray/sysproxy', { enable: true });
-                log('پروکسی سیستم فعال شد.');
+                log('پروکسی سیستم فعال شد (هدایت مرورگرها و برنامه‌های سیستم).');
             } else {
                 await api('v2ray/tun', { enabled: false }).catch(() => {});
                 await api('v2ray/sysproxy', { enable: false }).catch(() => {});
-                log('حالت فقط پورت محلی فعال شد.');
+                log('حالت فقط پورت محلی فعال شد (پورت 10808 و 10809).');
             }
         } catch (e) {
-            log(`✗ خطا در تنظیم پروکسی: ${e.message}`);
+            log(`✗ خطا در تنظیم تونل: ${e.message}`);
         }
     }
 
@@ -266,7 +274,7 @@
         paint();
         log('— ورود در صفحهٔ موزیلا…');
         try {
-            const r = await api('fenix/challenge', { host: st.challengeHost || '', purpose: 'signin' });
+            const r = await api('bbt/challenge', { host: st.challengeHost || '', purpose: 'signin' });
             st.challenge = false;
             st.challengeHost = '';
             if (r.signedIn) {
@@ -287,7 +295,7 @@
     async function signOutAccount(id) {
         if (!confirm('آیا از خروج این حساب مطمئن هستید؟')) return;
         try {
-            await api('fenix/signout', { id });
+            await api('bbt/signout', { id });
             log('حساب حذف شد.');
             await refresh();
         } catch (e) {
@@ -299,7 +307,7 @@
         const btn = $('fnx-refresh-quota');
         if (btn) btn.classList.add('is-spinning');
         try {
-            await api('fenix/quota', { force: true });
+            await api('bbt/quota', { force: true });
             log('سهمیه تازه شد.');
             await refresh();
         } catch (e) {
@@ -328,11 +336,11 @@
         renderServerList();
 
         try {
-            await api('fenix/ping');
+            await api('bbt/ping');
             // Poll for completion up to 20 seconds
             for (let i = 0; i < 20; i++) {
                 await new Promise((r) => setTimeout(r, 1000));
-                const d = await api('fenix');
+                const d = await api('bbt');
                 st.data = d;
                 renderServerList();
                 renderServerRow();
@@ -358,7 +366,7 @@
         if (st.busy) return;
         st.busy = 'killswitch';
         try {
-            const res = await api('fenix/killswitch', { enabled });
+            const res = await api('bbt/killswitch', { enabled });
             if (st.data) st.data.killSwitch = res;
             setPrefs({ killSwitch: !!enabled });
             log(enabled ? '🛡️ قابلیت کیل‌سوئیچ فعال شد (محافظت در برابر نشت IP).' : 'سپر کیل‌سوئیچ غیرفعال شد.');
@@ -374,7 +382,7 @@
 
     async function toggleAutoReconnect(enabled) {
         try {
-            await api('fenix/autoreconnect', { enabled });
+            await api('bbt/autoreconnect', { enabled });
             log(enabled ? '🔄 اتصال مجدد خودکار فعال شد.' : 'اتصال مجدد خودکار غیرفعال شد.');
             await refresh();
         } catch (e) {
@@ -518,7 +526,7 @@
         } else {
             btn.classList.add('is-off');
             if (title) title.textContent = 'برای اتصال کلیک کنید';
-            if (sub) sub.textContent = 'FENIX Standalone VPN';
+            if (sub) sub.textContent = 'BABA Tunnel VPN';
         }
     }
 
@@ -739,8 +747,8 @@
   <!-- Top Bar -->
   <header class="fnx-topbar">
     <div class="fnx-brand">
-      <div class="fnx-brand-flame"><i class="ph-fill ph-fire"></i></div>
-      <div class="fnx-brand-name">FENIX</div>
+      <img src="/assets/logo.png" alt="BABA Tunnel" style="width:28px;height:28px;border-radius:6px;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.4);">
+      <div class="fnx-brand-name">BABA TUNNEL</div>
     </div>
     <div class="fnx-topbar-actions">
       <div class="fnx-status-pill" id="fnx-status-pill">
@@ -764,7 +772,7 @@
       </div>
       <div class="fnx-power-status">
         <div class="fnx-power-title" id="fnx-power-title">برای اتصال کلیک کنید</div>
-        <div class="fnx-power-sub" id="fnx-power-sub">FENIX Standalone VPN</div>
+        <div class="fnx-power-sub" id="fnx-power-sub">BABA Tunnel VPN</div>
       </div>
     </div>
 
@@ -782,6 +790,36 @@
       <i class="ph-fill ph-warning-circle"></i>
       <div class="fnx-alert-text" id="fnx-alert-text"></div>
       <button type="button" class="fnx-alert-btn" id="fnx-alert-btn" hidden></button>
+    </div>
+
+    <!-- Real-time Traffic Stats Widget -->
+    <div class="vpn-traffic is-disconnected" id="vpnTraffic">
+      <div class="vpn-traffic__status">
+        <span class="vpn-traffic__dot"></span>
+        <span id="vpnStatus">قطع (Disconnected)</span>
+      </div>
+
+      <div class="vpn-traffic__stats">
+        <div class="vpn-traffic__item">
+          <span class="vpn-traffic__icon upload">↑</span>
+          <div>
+            <span class="vpn-traffic__label">SENT</span>
+            <strong id="vpnSent">--</strong>
+            <small id="vpnUploadSpeed">-- /s</small>
+          </div>
+        </div>
+
+        <div class="vpn-traffic__divider"></div>
+
+        <div class="vpn-traffic__item">
+          <span class="vpn-traffic__icon download">↓</span>
+          <div>
+            <span class="vpn-traffic__label">RECEIVED</span>
+            <strong id="vpnReceived">--</strong>
+            <small id="vpnDownloadSpeed">-- /s</small>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Server Row -->
@@ -839,7 +877,7 @@
       <div class="fnx-progress-fill" id="fnx-quota-fill" style="width:100%;"></div>
     </div>
     <div style="text-align:center; font-size:10.5px; color:var(--fnx-text-3); margin-top:2px;">
-      طراحی و توسعه : <strong style="color:var(--fnx-flame-1); font-weight:600;">Hajbaba</strong>
+      طراحی و توسعه : <a href="https://github.com/hajbaba1" target="_blank" rel="noopener noreferrer" style="color:var(--fnx-flame-1); font-weight:700; text-decoration:none; cursor:pointer;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'" title="مشاهده گیت‌هاب Hajbaba">Hajbaba</a>
     </div>
   </footer>
 
@@ -966,15 +1004,17 @@
         <!-- About Pane -->
         <div class="fnx-dpane" id="fnx-dpane-about">
           <div class="fnx-sub-card" style="line-height:1.8;font-size:12px;">
-            <p style="font-weight:700; font-size:14px; margin-bottom:2px; color:var(--fnx-text-1);">Fenix Standalone VPN v1.0.0</p>
-            <p style="font-size:12px; color:var(--fnx-flame-1); font-weight:600; margin-bottom:10px;">طراحی و توسعه : Hajbaba</p>
+            <p style="font-weight:700; font-size:14px; margin-bottom:2px; color:var(--fnx-text-1);">BABA Tunnel v1.0.0 (BBT)</p>
+            <p style="font-size:12px; margin-bottom:10px; color:var(--fnx-text-2);">
+              طراحی و توسعه : <a href="https://github.com/hajbaba1" target="_blank" rel="noopener noreferrer" style="color:var(--fnx-flame-1); font-weight:700; text-decoration:none; cursor:pointer;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'" title="مشاهده گیت‌هاب Hajbaba">Hajbaba</a>
+            </p>
             <p style="margin-bottom:8px; color:var(--fnx-text-2);">
               Based on MLMVPN for Windows<br>
               <a href="https://github.com/mlmvpn/mlmvpn_windows" target="_blank" style="color:var(--fnx-flame-1); text-decoration:underline;">https://github.com/mlmvpn/mlmvpn_windows</a>
             </p>
             <p style="margin-bottom:8px; color:var(--fnx-text-2);">
               Original Copyright &copy; 2026 Ehsan (MLMVPN). All rights reserved.<br>
-              Licensed under the MLMVPN Attribution License 1.0.
+              Licensed under the BABA tunnel Attribution Licence 1.0 (based on MLMVPN Attribution License 1.0).
             </p>
             <div style="margin-top:10px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.06); color:var(--fnx-text-3); font-size:11px;">
               این کلاینت مستقل بر پایهٔ پروژهٔ MLMVPN توسعه یافته و از پروتکل Fastly MASQUE موزیلا و هستهٔ Xray-core بهره می‌برد.
@@ -1091,18 +1131,89 @@
         });
     }
 
+    // ── Traffic Widget Formatting & Polling ───────────────────────────────────
+    function formatTrafficBytes(bytes) {
+        if (bytes == null || !Number.isFinite(bytes) || bytes <= 0) return "--";
+        const units = ["B", "KB", "MB", "GB", "TB"];
+        let i = 0;
+        let value = Math.max(0, bytes);
+        while (value >= 1024 && i < units.length - 1) {
+            value /= 1024;
+            i++;
+        }
+        return value.toFixed(i >= 2 ? 2 : 1) + " " + units[i];
+    }
+
+    function formatTrafficSpeed(bytesPerSecond) {
+        if (bytesPerSecond == null || !Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return "-- /s";
+        return formatTrafficBytes(bytesPerSecond) + "/s";
+    }
+
+    function updateTraffic({
+        sentBytes,
+        receivedBytes,
+        uploadSpeed,
+        downloadSpeed,
+        connected = true
+    }) {
+        const vpnWidget = $('vpnTraffic');
+        if (!vpnWidget) return;
+
+        const vpnSent = $('vpnSent');
+        const vpnReceived = $('vpnReceived');
+        const vpnUploadSpeed = $('vpnUploadSpeed');
+        const vpnDownloadSpeed = $('vpnDownloadSpeed');
+        const vpnStatus = $('vpnStatus');
+
+        if (vpnSent) vpnSent.textContent = connected && sentBytes > 0 ? formatTrafficBytes(sentBytes) : "--";
+        if (vpnReceived) vpnReceived.textContent = connected && receivedBytes > 0 ? formatTrafficBytes(receivedBytes) : "--";
+        if (vpnUploadSpeed) vpnUploadSpeed.textContent = connected && uploadSpeed > 0 ? formatTrafficSpeed(uploadSpeed) : "-- /s";
+        if (vpnDownloadSpeed) vpnDownloadSpeed.textContent = connected && downloadSpeed > 0 ? formatTrafficSpeed(downloadSpeed) : "-- /s";
+        if (vpnStatus) vpnStatus.textContent = connected ? "متصل (Connected)" : "قطع (Disconnected)";
+
+        vpnWidget.classList.toggle("is-disconnected", !connected);
+    }
+
+    window.updateTraffic = updateTraffic;
+
+    async function refreshTraffic() {
+        try {
+            const data = await api('traffic');
+            if (data && data.ok) {
+                updateTraffic({
+                    sentBytes: data.sent,
+                    receivedBytes: data.received,
+                    uploadSpeed: data.uploadSpeed,
+                    downloadSpeed: data.downloadSpeed,
+                    connected: Boolean(data.connected)
+                });
+            }
+        } catch (e) {
+            updateTraffic({
+                sentBytes: 0,
+                receivedBytes: 0,
+                uploadSpeed: 0,
+                downloadSpeed: 0,
+                connected: false
+            });
+        }
+    }
+
     let built = false;
     function build() {
-        const root = $('ls-fenix');
+        const root = $('ls-bbt') || $('ls-fenix');
         if (!root || built) return;
         built = true;
         root.innerHTML = template();
         bindEvents();
     }
 
-    window.initFenixModule = () => {
+    window.initBbtModule = () => {
         build();
         refresh();
+        refreshTraffic();
         setInterval(() => { refresh(); }, 2000);
+        setInterval(() => { refreshTraffic(); }, 1000);
     };
+    window.initFenixModule = window.initBbtModule;
 })();

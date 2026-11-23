@@ -1,12 +1,12 @@
 // --- tests/health-check-session.test.js ---
-// Tests health-check probe failure modes and fenix-session state machine without external network.
+// Tests health-check probe failure modes and bbt-session state machine without external network.
 
 'use strict';
 
 const test = require('node:test');
 const assert = require('node:assert');
 const healthCheck = require('../health-check');
-const fenixSessionModule = require('../fenix-session');
+const bbtSessionModule = require('../bbt-session');
 
 test('health-check: verify returns failure when local SOCKS port is not listening', async () => {
     // Pick an inactive high port on localhost
@@ -18,9 +18,9 @@ test('health-check: verify returns failure when local SOCKS port is not listenin
     assert.ok(res.error, 'Must report error details');
 });
 
-test('fenix-session: state machine initialization and check()', () => {
+test('bbt-session: state machine initialization and check()', () => {
     let emitted = [];
-    const session = fenixSessionModule.create({
+    const session = bbtSessionModule.create({
         start: async () => {},
         stop: async () => {},
         verify: async () => ({ ok: true }),
@@ -37,8 +37,8 @@ test('fenix-session: state machine initialization and check()', () => {
     assert.strictEqual(st.live, false);
 });
 
-test('fenix-session: disconnect on already stopped session', async () => {
-    const session = fenixSessionModule.create({
+test('bbt-session: disconnect on already stopped session', async () => {
+    const session = bbtSessionModule.create({
         start: async () => {},
         stop: async () => {},
         verify: async () => ({ ok: true }),

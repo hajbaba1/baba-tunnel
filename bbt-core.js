@@ -35,13 +35,38 @@ const solver = require('./fastly-solver');
 
 function getStorageDir() {
     const base = process.env.APPDATA || (process.platform === 'darwin' ? path.join(os.homedir(), 'Library', 'Application Support') : path.join(os.homedir(), '.config'));
-    const dir = path.join(base, 'fenix-vpn');
+    const dir = path.join(base, 'baba-tunnel');
     if (!fs.existsSync(dir)) {
-        try { fs.mkdirSync(dir, { recursive: true }); } catch (e) {}
+        try {
+            fs.mkdirSync(dir, { recursive: true });
+            // Auto-migrate from legacy fenix-vpn directory if present
+            const oldDir = path.join(base, 'fenix-vpn');
+            if (fs.existsSync(oldDir)) {
+                for (const item of ['fenix.json', 'bbt.json', 'kill-switch.json']) {
+                    const src = path.join(oldDir, item);
+                    const dst = path.join(dir, item === 'fenix.json' ? 'bbt.json' : item);
+                    if (fs.existsSync(src) && !fs.existsSync(dst)) {
+                        try { fs.copyFileSync(src, dst); } catch (_) {}
+                    }
+                }
+                const oldCore = path.join(oldDir, 'core');
+                const newCore = path.join(dir, 'core');
+                if (fs.existsSync(oldCore) && !fs.existsSync(newCore)) {
+                    fs.mkdirSync(newCore, { recursive: true });
+                    for (const f of ['xray.exe', 'geoip.dat', 'geosite.dat']) {
+                        const s = path.join(oldCore, f);
+                        const d = path.join(newCore, f);
+                        if (fs.existsSync(s) && !fs.existsSync(d)) {
+                            try { fs.copyFileSync(s, d); } catch (_) {}
+                        }
+                    }
+                }
+            }
+        } catch (e) {}
     }
     return dir;
 }
-const FILE = path.join(getStorageDir(), 'fenix.json');
+const FILE = path.join(getStorageDir(), 'bbt.json');
 let AUTH = 'https://api.accounts.firefox.com/v1';
 /** Mozilla's OAuth server: its `/token` is the token endpoint accounts.firefox.com/.well-known/openid-configuration names. */
 let OAUTH = 'https://oauth.accounts.firefox.com/v1';
@@ -102,7 +127,12 @@ function hawkHeader(method, url, id, key, body, ts = now(), nonce = crypto.rando
 const EMPTY = () => ({ accounts: [], servers: null, serversAt: 0, pings: {}, checked: {}, exitSeen: {}, http1: false });
 function load() {
     try {
-        const s = Object.assign(EMPTY(), JSON.parse(fs.readFileSync(FILE, 'utf8')) || {});
+        let filePath = FILE;
+        if (!fs.existsSync(filePath)) {
+            const legacyPath = path.join(getStorageDir(), 'fenix.json');
+            if (fs.existsSync(legacyPath)) filePath = legacyPath;
+        }
+        const s = Object.assign(EMPTY(), JSON.parse(fs.readFileSync(filePath, 'utf8')) || {});
         if (!Array.isArray(s.accounts)) s.accounts = [];
         if (!s.pings || typeof s.pings !== 'object') s.pings = {};
         if (!s.checked || typeof s.checked !== 'object') s.checked = {};
@@ -112,11 +142,11 @@ function load() {
 }
 function save(s) { fs.mkdirSync(path.dirname(FILE), { recursive: true }); fs.writeFileSync(FILE + '.tmp', JSON.stringify(s, null, 2)); fs.renameSync(FILE + '.tmp', FILE); return s; }
 /**
- * %APPDATA%/fenix-vpn/fenix.log: which of Mozilla's endpoints answered what, and through whom (Node, the
+ * %APPDATA%/baba-tunnel/bbt.log: which of Mozilla's endpoints answered what, and through whom (Node, the
  * browser, Mozilla's page) — the record a «it asks for the check again» report is read from. Hosts,
  * paths and status codes only: never a token, a session or an e-mail. Kept under 256 KB.
  */
-const LOG_FILE = path.join(path.dirname(FILE), 'fenix.log');
+const LOG_FILE = path.join(path.dirname(FILE), 'bbt.log');
 
 /**
  * Sanitizes any log line or error message to guarantee credentials and tokens never leak.
@@ -155,7 +185,8 @@ function updateAccount(id, fn) {
 }
 const crypt = () => require('./crypto-store');
 
-class FenixError extends Error { constructor(msg, code, extra) { super(msg); this.code = code; Object.assign(this, extra || {}); } }
+class BbtError extends Error { constructor(msg, code, extra) { super(msg); this.code = code; Object.assign(this, extra || {}); } }
+const FenixError = BbtError; // backward-compatibility alias
 
 /** `firefox.com` or `mozilla.org` for their hosts: Fastly's check and its pass are per site (Android › FenixHttp.siteOf). */
 function siteOf(host) {
@@ -236,7 +267,7 @@ async function call(method, url, { json = null, bearer = null, session = null } 
         r = await execFetch(url, { method, headers, body: body || (method === 'POST' ? Buffer.alloc(0) : undefined), signal: AbortSignal.timeout(40000) });
     } catch (e) {
         note(`${viaBrowser ? 'browser' : 'node'} ${method} ${host}${new URL(url).pathname} → no answer (${(e && e.name) || 'error'})`);
-        throw new FenixError(e && (e.name === 'TimeoutError' || e.name === 'AbortError')
+        throw new BbtError(e && (e.name === 'TimeoutError' || e.name === 'AbortError')
             ? 'موزیلا در زمان معمول جواب نداد — کمی بعد دوباره امتحان کنید.'
             : 'به سرورهای موزیلا نرسید — اتصال اینترنت را بررسی کنید.', 'OFFLINE');
     }
@@ -328,11 +359,11 @@ async function call(method, url, { json = null, bearer = null, session = null } 
 /** One of Mozilla's answers, read the same way whoever made the call (Node, the browser, Mozilla's page). */
 function answerOf(status, text, host, headers) {
     // `host`: the site that asked for its check (Firefox Accounts or Guardian) — its page is the one opened.
-    if (status === 406) throw new FenixError('موزیلا اول یک بررسی مرورگر می‌خواهد.', 'CHALLENGE', { host });
+    if (status === 406) throw new BbtError('موزیلا اول یک بررسی مرورگر می‌خواهد.', 'CHALLENGE', { host });
     let data = {};
     try { data = text ? JSON.parse(text) : {}; } catch (e) { data = {}; }
     // Mozilla's own sentence is English; it is kept as `detail` for the log, not shown as the reason.
-    if (status >= 400) throw new FenixError(`موزیلا این درخواست را نپذیرفت (کد ${status}).`, 'API', { status, errno: data.errno, detail: data.message || '', retryAfter: headers.get('retry-after') });
+    if (status >= 400) throw new BbtError(`موزیلا این درخواست را نپذیرفت (کد ${status}).`, 'API', { status, errno: data.errno, detail: data.message || '', retryAfter: headers.get('retry-after') });
     return { data, headers };
 }
 
@@ -351,14 +382,14 @@ async function login(email, password, withMethod = true) {
 /** Email + password. Resolves { needCode } — Mozilla usually sends a 6-digit code by e-mail. */
 async function signIn(email, password) {
     const em = String(email || '').trim();
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em) || !password) throw new FenixError('ایمیل و رمز حساب فایرفاکس را وارد کنید.', 'INPUT');
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em) || !password) throw new BbtError('ایمیل و رمز حساب فایرفاکس را وارد کنید.', 'INPUT');
     { const s = load(); if (s.refusedAt) { delete s.refusedAt; save(s); } }
     let d;
     try { d = await login(em, String(password)); }
     catch (e) {
-        if (e.errno === 102) throw new FenixError('حساب فایرفاکسی با این ایمیل نیست.', 'WRONG');
-        if (e.errno === 103) throw new FenixError('ایمیل یا رمز حساب فایرفاکس درست نیست.', 'WRONG');
-        if (e.errno === 114 || e.status === 429) throw new FenixError('موزیلا موقتاً ورود را محدود کرده — کمی بعد دوباره امتحان کنید.', 'RATE');
+        if (e.errno === 102) throw new BbtError('حساب فایرفاکسی با این ایمیل نیست.', 'WRONG');
+        if (e.errno === 103) throw new BbtError('ایمیل یا رمز حساب فایرفاکس درست نیست.', 'WRONG');
+        if (e.errno === 114 || e.status === 429) throw new BbtError('موزیلا موقتاً ورود را محدود کرده — کمی بعد دوباره امتحان کنید.', 'RATE');
         throw e;
     }
     pending = { email: em, session: d.sessionToken, verified: d.verified !== false };
@@ -368,13 +399,13 @@ async function signIn(email, password) {
 }
 async function verifyCode(code) {
     const p = pending;
-    if (!p || p.web) throw new FenixError('اول ایمیل و رمز را بزنید.', 'STATE');
+    if (!p || p.web) throw new BbtError('اول ایمیل و رمز را بزنید.', 'STATE');
     // A code Mozilla already took — the token step after it was what failed — is not sent again.
     if (!p.verified) {
         const c = String(code || '').replace(/[\s-]/g, '').replace(/[۰-۹]/g, (x) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(x)));
-        if (!/^\d{4,8}$/.test(c)) throw new FenixError('کد ۶ رقمی ایمیل را وارد کنید.', 'CODE');
+        if (!/^\d{4,8}$/.test(c)) throw new BbtError('کد ۶ رقمی ایمیل را وارد کنید.', 'CODE');
         try { await call('POST', AUTH + '/session/verify_code', { session: p.session, json: { code: c } }); }
-        catch (e) { if (e.status === 400) throw new FenixError('کد درست نیست یا منقضی شده.', 'CODE'); throw e; }
+        catch (e) { if (e.status === 400) throw new BbtError('کد درست نیست یا منقضی شده.', 'CODE'); throw e; }
         p.verified = true;
     }
     await complete();
@@ -421,7 +452,7 @@ async function exchangeSessionWithOAuthCode(session) {
     });
     const code = authData && authData.code;
     if (!code || authData.state !== state) {
-        throw new FenixError('موزیلا کد ورود را نداد — یک بار دیگر وارد شوید.', 'API');
+        throw new BbtError('موزیلا کد ورود را نداد — یک بار دیگر وارد شوید.', 'API');
     }
     const { data } = await call('POST', OAUTH + '/token', {
         json: {
@@ -443,14 +474,14 @@ async function exchangeSessionWithOAuthCode(session) {
 async function signInWithSession(email, session) {
     const em = String(email || '').trim();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em) || !/^[0-9a-f]{64}$/i.test(String(session || ''))) {
-        throw new FenixError('صفحهٔ موزیلا حساب را کامل تحویل نداد — یک بار دیگر وارد شوید.', 'STATE');
+        throw new BbtError('صفحهٔ موزیلا حساب را کامل تحویل نداد — یک بار دیگر وارد شوید.', 'STATE');
     }
     { const s = load(); if (s.refusedAt) { delete s.refusedAt; save(s); } }
     pending = { email: em, session: String(session).toLowerCase(), verified: true, web: true };
     try { await complete(); }
     catch (e) {
         // A session the page had not yet confirmed with the e-mailed code (Mozilla's errno 138).
-        if (e.errno === 138) { pending = null; throw new FenixError(UNVERIFIED_MSG, 'UNVERIFIED'); }
+        if (e.errno === 138) { pending = null; throw new BbtError(UNVERIFIED_MSG, 'UNVERIFIED'); }
         throw e;
     }
     return em;
@@ -458,7 +489,7 @@ async function signInWithSession(email, session) {
 /** The token grant for a signed-in session (Hawk-signed with it): an access token and a refresh token for the VPN scope. */
 async function complete() {
     const p = pending;
-    if (!p) throw new FenixError('اول ایمیل و رمز را بزنید.', 'STATE');
+    if (!p) throw new BbtError('اول ایمیل و رمز را بزنید.', 'STATE');
     if (!p.verified) {
         const ok = await waitSessionConfirmed(p.session, 2000);
         if (ok) p.verified = true;
@@ -484,14 +515,14 @@ async function complete() {
     }
     if (!tokenData || !tokenData.access_token) {
         if (originalChallenge) throw originalChallenge;
-        throw new FenixError('موزیلا توکن حساب را نداد — یک بار دیگر وارد شوید.', 'API');
+        throw new BbtError('موزیلا توکن حساب را نداد — یک بار دیگر وارد شوید.', 'API');
     }
     destroySession(p.session);
     return saveGrant(p, tokenData);
 }
 /** Keep what a grant for pending sign-in `p` gave (the account, its tokens sealed), whoever made the call. Resolves the account id. */
 async function saveGrant(p, data) {
-    if (!data || !data.access_token) throw new FenixError('موزیلا توکن حساب را نداد — یک بار دیگر وارد شوید.', 'API');
+    if (!data || !data.access_token) throw new BbtError('موزیلا توکن حساب را نداد — یک بار دیگر وارد شوید.', 'API');
     const s = load();
     if (s.refusedAt) delete s.refusedAt;
     const id = crypto.createHash('sha1').update(p.email.toLowerCase()).digest('hex').slice(0, 10);
@@ -543,7 +574,7 @@ const dueForRefresh = (a) => !!a && !a.signedOut && !(a.expiresAt - 600 > now())
 
 /** Seal a refresh's answer into account `id`. Resolves the new access token. */
 async function keepTokens(id, d, oldRefresh) {
-    if (!d || !d.access_token) throw new FenixError('موزیلا توکن تازه نداد.', 'API');
+    if (!d || !d.access_token) throw new BbtError('موزیلا توکن تازه نداد.', 'API');
     const sealed = await crypt().protectAsync(JSON.stringify({ access: d.access_token, refresh: d.refresh_token || oldRefresh }));
     updateAccount(id, (a) => { a.sealed = sealed; a.expiresAt = now() + (Number(d.expires_in) || 86400); a.signedOut = false; });
     needPage.delete(id);
@@ -554,18 +585,18 @@ async function keepTokens(id, d, oldRefresh) {
 function markSignedOut(id) {
     needPage.delete(id);
     updateAccount(id, (a) => { a.signedOut = true; });
-    return new FenixError('موزیلا این حساب را خارج کرد — دوباره وارد شوید.', 'SIGNED_OUT');
+    return new BbtError('موزیلا این حساب را خارج کرد — دوباره وارد شوید.', 'SIGNED_OUT');
 }
 
 /** A valid access token, refreshed when it is about to expire; a refresh Mozilla refuses outright signs the account out. */
 async function accessToken(id, force = false) {
     const s = load();
     const a = s.accounts.find((x) => x.id === id);
-    if (!a || a.signedOut) throw new FenixError('این حساب خارج شده — دوباره وارد شوید.', 'SIGNED_OUT');
+    if (!a || a.signedOut) throw new BbtError('این حساب خارج شده — دوباره وارد شوید.', 'SIGNED_OUT');
     const t = await tokens(a);
-    if (!t) throw new FenixError('توکن‌های این حساب روی این کامپیوتر باز نشد — یک بار خارج و دوباره وارد شوید.', 'SEAL');
+    if (!t) throw new BbtError('توکن‌های این حساب روی این کامپیوتر باز نشد — یک بار خارج و دوباره وارد شوید.', 'SEAL');
     if (!force && a.expiresAt - 120 > now()) return t.access;
-    if (!t.refresh) { a.signedOut = true; save(s); throw new FenixError('حساب نیاز به ورود دوباره دارد.', 'SIGNED_OUT'); }
+    if (!t.refresh) { a.signedOut = true; save(s); throw new BbtError('حساب نیاز به ورود دوباره دارد.', 'SIGNED_OUT'); }
     let checkWanted = null, last = null;
     for (const url of REFRESH_URLS()) {
         try { return await keepTokens(id, (await call('POST', url, { json: refreshBody(t.refresh) })).data, t.refresh); }
@@ -576,8 +607,8 @@ async function accessToken(id, force = false) {
     }
     // Fastly stood in the way: Mozilla's own page makes this refresh once the window is open (pageWork) —
     // unless even the page was turned away lately: then the answer is that, not the window again and again.
-    if (checkWanted && Date.now() - (Number(load().refusedAt) || 0) < REFUSED_HOLD_MS) throw new FenixError(REFUSED_AGAIN_MSG, 'REFUSED_AGAIN');
-    if (checkWanted) { needPage.add(id); throw new FenixError(checkWanted.message, 'CHALLENGE', { host: 'accounts.firefox.com' }); }
+    if (checkWanted && Date.now() - (Number(load().refusedAt) || 0) < REFUSED_HOLD_MS) throw new BbtError(REFUSED_AGAIN_MSG, 'REFUSED_AGAIN');
+    if (checkWanted) { needPage.add(id); throw new BbtError(checkWanted.message, 'CHALLENGE', { host: 'accounts.firefox.com' }); }
     throw last;
 }
 
@@ -592,9 +623,9 @@ async function guardian(method, p, access) {
                 return await call(method, 'https://vpn.mozilla.org//api/v1/fpn' + p, { bearer: access });
             } catch (retryErr) { e = retryErr; }
         }
-        if (e.status === 401 || e.status === 403) throw new FenixError('موزیلا توکن این حساب را نپذیرفت.', 'REJECTED');
-        if (e.status === 429) throw new FenixError('حجم رایگان این ماهِ این حساب تمام شده است.', 'QUOTA');
-        if (e.status === 451) throw new FenixError('موزیلا اینترنت منطقه شما را محدود کرده است (کد ۴۵۱).', 'REGION_BLOCKED');
+        if (e.status === 401 || e.status === 403) throw new BbtError('موزیلا توکن این حساب را نپذیرفت.', 'REJECTED');
+        if (e.status === 429) throw new BbtError('حجم رایگان این ماهِ این حساب تمام شده است.', 'QUOTA');
+        if (e.status === 451) throw new BbtError('موزیلا اینترنت منطقه شما را محدود کرده است (کد ۴۵۱).', 'REGION_BLOCKED');
         throw e;
     }
 }
@@ -631,7 +662,7 @@ async function pass(id) {
         throw e;
     }
     const { data, headers } = res;
-    if (!data.token) throw new FenixError('موزیلا پاس پراکسی نداد.', 'API');
+    if (!data.token) throw new BbtError('موزیلا پاس پراکسی نداد.', 'API');
     const c = claims(data.token);
     const t = now();
     // The phone's clock at receipt times the renewal, not the JWT's own times (they can be skewed).
@@ -673,11 +704,11 @@ async function pickAccount({ accountId = null } = {}) {
     const s = load();
     const a = accountId ? s.accounts.find((x) => x.id === accountId) : s.accounts.find((x) => !x.signedOut);
     if (!a) {
-        if (accountId) throw new FenixError('حسابی که برای اتصال انتخاب شده دیگر در برنامه نیست — حساب دیگری انتخاب کنید.', 'NO_ACCOUNT');
-        throw new FenixError(s.accounts.length ? 'حساب‌ها نیاز به ورود دوباره دارند.' : 'اول با حساب فایرفاکس وارد شوید.', s.accounts.length ? 'SIGNED_OUT' : 'NO_ACCOUNT');
+        if (accountId) throw new BbtError('حسابی که برای اتصال انتخاب شده دیگر در برنامه نیست — حساب دیگری انتخاب کنید.', 'NO_ACCOUNT');
+        throw new BbtError(s.accounts.length ? 'حساب‌ها نیاز به ورود دوباره دارند.' : 'اول با حساب فایرفاکس وارد شوید.', s.accounts.length ? 'SIGNED_OUT' : 'NO_ACCOUNT');
     }
-    if (a.signedOut) throw new FenixError('این حساب خارج شده — در بخش «حساب‌ها» دوباره وارد شوید.', 'SIGNED_OUT');
-    const quotaErr = () => new FenixError(a.quota && a.quota.reset && a.quota.reset * 1000 > Date.now()
+    if (a.signedOut) throw new BbtError('این حساب خارج شده — در بخش «حساب‌ها» دوباره وارد شوید.', 'SIGNED_OUT');
+    const quotaErr = () => new BbtError(a.quota && a.quota.reset && a.quota.reset * 1000 > Date.now()
         ? `حجم رایگان این ماهِ این حساب تمام شده است؛ موزیلا ${new Date(a.quota.reset * 1000).toLocaleDateString('fa-IR', { day: 'numeric', month: 'long' })} دوباره پرش می‌کند.`
         : 'حجم رایگان این ماهِ این حساب تمام شده است.', 'QUOTA');
     // Known to be used up, and the reading is recent: not even asked.
@@ -806,11 +837,11 @@ async function pingAll(list, ping = net.ping) {
  */
 async function findTarget(country = 'fastest') {
     const list = await servers();
-    if (!list.length) throw new FenixError('فهرست سرورهای موزیلا گرفته نشد — اتصال اینترنت را بررسی کنید.', 'NO_SERVERS');
+    if (!list.length) throw new BbtError('فهرست سرورهای موزیلا گرفته نشد — اتصال اینترنت را بررسی کنید.', 'NO_SERVERS');
     let cands;
     if (country && country !== 'fastest') {
         cands = list.filter((x) => x.country === country);
-        if (!cands.length) throw new FenixError('موزیلا در کشوری که انتخاب شده دیگر سروری ندارد — کشور دیگری انتخاب کنید.', 'NO_SERVER');
+        if (!cands.length) throw new BbtError('موزیلا در کشوری که انتخاب شده دیگر سروری ندارد — کشور دیگری انتخاب کنید.', 'NO_SERVER');
     } else {
         let s = load();
         const measured = () => list.some((x) => s.pings[x.country] > 0);
@@ -854,20 +885,38 @@ function outbound(tag, srv, address, token, http1 = false) {
  */
 function config(srv, addresses, token, { http1 = false } = {}) {
     const used = [...new Set(addresses)].slice(0, 2);
-    const obs = used.map((a, i) => outbound('fenix-' + i, srv, a, token, http1));
-    const to = used.length > 1 ? { balancerTag: 'fenix' } : { outboundTag: 'fenix-0' };
+    const obs = used.map((a, i) => outbound('bbt-' + i, srv, a, token, http1));
+    const to = used.length > 1 ? { balancerTag: 'bbt' } : { outboundTag: 'bbt-0' };
     return {
         log: { loglevel: 'warning' },
-        inbounds: [{ tag: 'socks-in', port: 10808, listen: '127.0.0.1', protocol: 'socks', settings: { udp: true }, sniffing: { enabled: true, destOverride: ['http', 'tls'] } }],
+        stats: {},
+        api: {
+            tag: 'api',
+            services: ['StatsService']
+        },
+        policy: {
+            system: {
+                statsInboundUplink: true,
+                statsInboundDownlink: true,
+                statsOutboundUplink: true,
+                statsOutboundDownlink: true
+            }
+        },
+        inbounds: [
+            { tag: 'socks-in', port: 10808, listen: '127.0.0.1', protocol: 'socks', settings: { udp: true }, sniffing: { enabled: true, destOverride: ['http', 'tls'], metadataOnly: true } },
+            { tag: 'http-in', port: 10809, listen: '127.0.0.1', protocol: 'http', sniffing: { enabled: true, destOverride: ['http', 'tls'], metadataOnly: true } },
+            { tag: 'api', port: 10085, listen: '127.0.0.1', protocol: 'dokodemo-door', settings: { address: '127.0.0.1' } }
+        ],
         outbounds: [...obs, { tag: 'direct', protocol: 'freedom' }, { tag: 'dns-out', protocol: 'dns' }, { tag: 'blocked', protocol: 'blackhole' }],
-        dns: { tag: 'fenix-dns', servers: ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'], queryStrategy: 'UseIPv4' },
-        ...(used.length > 1 ? { observatory: { subjectSelector: ['fenix-'], probeUrl: 'https://www.gstatic.com/generate_204', probeInterval: '1m' } } : {}),
+        dns: { tag: 'bbt-dns', servers: ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'], queryStrategy: 'UseIPv4' },
+        ...(used.length > 1 ? { observatory: { subjectSelector: ['bbt-'], probeUrl: 'https://www.gstatic.com/generate_204', probeInterval: '1m' } } : {}),
         routing: {
             domainStrategy: 'AsIs',
-            ...(used.length > 1 ? { balancers: [{ tag: 'fenix', selector: ['fenix-'], fallbackTag: 'fenix-0', strategy: { type: 'leastPing' } }] } : {}),
+            ...(used.length > 1 ? { balancers: [{ tag: 'bbt', selector: ['bbt-'], fallbackTag: 'bbt-0', strategy: { type: 'leastPing' } }] } : {}),
             rules: [
+                { type: 'field', inboundTag: ['api'], outboundTag: 'api' },
                 { type: 'field', port: '53', outboundTag: 'dns-out' },
-                Object.assign({ type: 'field', inboundTag: ['fenix-dns'] }, to),
+                Object.assign({ type: 'field', inboundTag: ['bbt-dns'] }, to),
                 { type: 'field', ip: ['10.10.34.0/24'], outboundTag: 'blocked' },
                 { type: 'field', ip: ['geoip:private'], outboundTag: 'direct' },
                 { type: 'field', network: 'udp', outboundTag: 'blocked' },
@@ -885,13 +934,13 @@ function config(srv, addresses, token, { http1 = false } = {}) {
  */
 async function prepare({ accountId = null, country = 'fastest', target = null, http1 = null, onStep = () => {} } = {}) {
     const s = load();
-    if (!s.accounts.length) throw new FenixError('اول با حساب فایرفاکس وارد شوید.', 'NO_ACCOUNT');
+    if (!s.accounts.length) throw new BbtError('اول با حساب فایرفاکس وارد شوید.', 'NO_ACCOUNT');
     let tgt = target;
     if (!tgt) {
         onStep('server');
         tgt = await findTarget(country);
         if (!tgt) {
-            throw new FenixError(country && country !== 'fastest'
+            throw new BbtError(country && country !== 'fastest'
                 ? 'سرور موزیلا در این کشور از اینترنت شما جواب نداد — کشور دیگری را امتحان کنید.'
                 : 'هیچ‌کدام از سرورهای موزیلا از اینترنت شما جواب ندادند.', 'SERVER_DOWN');
         }
@@ -1049,7 +1098,7 @@ async function pageCall(wc, method, url, { json = null, session = null } = {}) {
     try { o = JSON.parse(await timed(pageRun(wc, js), 45000)); } catch (e) { o = { s: -1, t: String((e && e.message) || e) }; }
     const where = new URL(url);
     note(`page ${method} ${where.hostname}${where.pathname} → ${o && o.s > 0 ? o.s : 'no answer (' + String((o && o.t) || '').slice(0, 80) + ')'}`);
-    if (!(o && o.s > 0)) throw new FenixError('صفحهٔ موزیلا به سرور خودش نرسید — اتصال اینترنت را بررسی کنید.', 'OFFLINE', { detail: String((o && o.t) || '') });
+    if (!(o && o.s > 0)) throw new BbtError('صفحهٔ موزیلا به سرور خودش نرسید — اتصال اینترنت را بررسی کنید.', 'OFFLINE', { detail: String((o && o.t) || '') });
     return answerOf(o.s, o.t, where.hostname, { get: (k) => (String(k).toLowerCase() === 'retry-after' ? (o.ra || null) : null) });
 }
 
@@ -1076,7 +1125,7 @@ async function pageWork(wc) {
     if (p && p.web) {
         try { await saveGrant(p, (await pageCall(wc, 'POST', AUTH + '/oauth/token', { session: p.session, json: GRANT_BODY })).data); out.signedIn = p.email; }
         catch (e) {
-            if (e.errno === 138) { if (pending === p) pending = null; out.error = new FenixError(UNVERIFIED_MSG, 'UNVERIFIED'); }
+            if (e.errno === 138) { if (pending === p) pending = null; out.error = new BbtError(UNVERIFIED_MSG, 'UNVERIFIED'); }
             else if (e.code === 'CHALLENGE' || e.status === 406) {
                 // If pageCall returned 406, try complete() with PKCE code exchange fallback
                 try {
@@ -1139,7 +1188,7 @@ async function challenge({ host = '', purpose = '' } = {}) {
         return checkOpen.done;
     }
     const b = browserSession();
-    if (!b) throw new FenixError('بررسی مرورگر فقط در خود برنامه باز می‌شود.', 'NO_ELECTRON');
+    if (!b) throw new BbtError('بررسی مرورگر فقط در خود برنامه باز می‌شود.', 'NO_ELECTRON');
     const grantWaits = !!(pending && pending.web && host);
     const signIn = (purpose === 'signin' || purpose === 'code') && !grantWaits;
     if (signIn) {
@@ -1204,7 +1253,7 @@ async function settle(r) {
             s.refusedAt = Date.now();
             save(s);
         }
-        throw new FenixError(REFUSED_AGAIN_MSG, 'REFUSED_AGAIN');
+        throw new BbtError(REFUSED_AGAIN_MSG, 'REFUSED_AGAIN');
     }
     // The page could not make what waited for it at all (no answer from its own server): not a check.
     if (r.error && !r.refreshed.length) throw r.error;
@@ -1321,7 +1370,7 @@ function status() {
 module.exports = {
     authPw, hkdf, hawkCredentials, hawkHeader, claims, parseServers, config, outbound, exhausted, siteOf,
     signIn, verifyCode, cancelSignIn, signInWithSession, accessToken, pass, pickAccount, refreshQuotas, servers, pingAll, handshakeMs,
-    findTarget, prepare, setHttp1, noteExit, challenge, signOut, status, FenixError, FILE, MIN_LEFT_BYTES, READ_PAGE_JS,
+    findTarget, prepare, setHttp1, noteExit, challenge, signOut, status, BbtError, FenixError, FILE, MIN_LEFT_BYTES, READ_PAGE_JS,
     checkPage, settle, pageWork, pageHasWork, checkWindow, REFRESH_URLS, PAGE_REFRESH_URLS, LOG_FILE, sanitizeLog,
     solver, WEBCHANNEL_HOOK_JS, WEBCHANNEL_LOGIN_URL,
     isAllowedMozillaUrl, isAllowedMozillaHost,

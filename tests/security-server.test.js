@@ -7,7 +7,8 @@ const test = require('node:test');
 const assert = require('node:assert');
 const http = require('http');
 const { createApp, startServer } = require('../server');
-const fenix = require('../fenix');
+const bbt = require('../bbt-core');
+const fenix = bbt;
 
 function httpRequest({ port, path, method = 'GET', headers = {}, body = null }) {
     return new Promise((resolve, reject) => {
@@ -78,7 +79,7 @@ test('security-server: Host and Origin rejection (DNS rebinding & CSRF protectio
         });
         assert.strictEqual(resNoToken.status, 403, 'Must reject request with missing token with 403');
 
-        // 4. Correct local Host and Token
+        // 4. Correct local Host and Token (both x-fenix-token and x-bbt-token)
         const resValid = await httpRequest({
             port,
             path: '/api/fenix',
@@ -89,6 +90,18 @@ test('security-server: Host and Origin rejection (DNS rebinding & CSRF protectio
         });
         assert.strictEqual(resValid.status, 200, 'Valid local request with token must succeed with 200');
         assert.strictEqual(resValid.json.ok, true);
+
+        // 5. Modern /api/bbt endpoint with x-bbt-token
+        const resBbt = await httpRequest({
+            port,
+            path: '/api/bbt',
+            headers: {
+                'Host': `127.0.0.1:${port}`,
+                'x-bbt-token': sessionToken,
+            },
+        });
+        assert.strictEqual(resBbt.status, 200, 'Valid /api/bbt with x-bbt-token must succeed with 200');
+        assert.strictEqual(resBbt.json.ok, true);
     } finally {
         server.close();
     }
@@ -251,6 +264,27 @@ test('security-routes: error responses from signin/code/connect do not leak secr
             headers: authHeaders,
             body: { enabled: true },
         });
+
+        // Test proxy toggle routes
+        const resTun = await httpRequest({
+            port,
+            path: '/api/v2ray/tun',
+            method: 'POST',
+            headers: authHeaders,
+            body: { enabled: false },
+        });
+        assert.strictEqual(resTun.status, 200);
+        assert.strictEqual(resTun.json.ok, true);
+
+        const resSysProxy = await httpRequest({
+            port,
+            path: '/api/v2ray/sysproxy',
+            method: 'POST',
+            headers: authHeaders,
+            body: { enable: false },
+        });
+        assert.strictEqual(resSysProxy.status, 200);
+        assert.strictEqual(resSysProxy.json.ok, true);
     } finally {
         server.close();
     }

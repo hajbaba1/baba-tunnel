@@ -1,4 +1,4 @@
-// --- main.js — Electron Entry Point for Fenix Standalone ---
+// --- main.js — Electron Entry Point for BABA Tunnel (BBT) ---
 //
 // Launches local server, recovers previous proxy state if needed,
 // opens single-window UI, and handles clean teardown.
@@ -8,6 +8,7 @@
 const electron = require('electron');
 const app = typeof electron === 'object' && electron ? electron.app : null;
 const BrowserWindow = typeof electron === 'object' && electron ? electron.BrowserWindow : null;
+const shell = typeof electron === 'object' && electron ? electron.shell : null;
 const path = require('path');
 const { startServer } = require('./server');
 const systemProxy = require('./system-proxy');
@@ -45,7 +46,7 @@ async function createWindow(serverPort) {
         resizable: true,
         backgroundColor: '#121316',
         autoHideMenuBar: true,
-        title: 'Fenix VPN',
+        title: 'BABA Tunnel',
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
@@ -53,8 +54,16 @@ async function createWindow(serverPort) {
         },
     });
 
-    // Security Hardening: Block external navigation and popups
-    mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    // Security Hardening: Safely open external https links in user's default browser, block internal popups
+    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+        try {
+            const parsed = new URL(url);
+            if (parsed.protocol === 'https:' && shell) {
+                shell.openExternal(url);
+            }
+        } catch (e) {}
+        return { action: 'deny' };
+    });
     mainWindow.webContents.on('will-navigate', (event, url) => {
         if (!isAllowedNavigationUrl(url, serverPort)) {
             event.preventDefault();
@@ -81,7 +90,7 @@ async function init() {
 
 if (app && app.whenReady) {
     app.whenReady().then(init).catch((err) => {
-        console.error('[Fenix Standalone] Initialization error:', err);
+        console.error('[BABA Tunnel] Initialization error:', err);
         app.quit();
     });
 
