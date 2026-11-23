@@ -33,12 +33,22 @@
     },
     "extraFiles": [
       {
+        "from": "core/xray.exe",
+        "to": "core/xray.exe"
+      },
+      {
         "from": "LICENSE",
         "to": "LICENSE"
       },
       {
         "from": "THIRD_PARTY_NOTICES.md",
         "to": "THIRD_PARTY_NOTICES.md"
+      }
+    ],
+    "extraResources": [
+      {
+        "from": "core/xray.exe",
+        "to": "core/xray.exe"
       }
     ],
     "files": [

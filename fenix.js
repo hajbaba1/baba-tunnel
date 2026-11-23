@@ -28,6 +28,7 @@ const os = require('os');
 const tls = require('tls');
 const dns = require('dns');
 const path = require('path');
+const nodeNet = require('net');
 const crypto = require('crypto');
 const solver = require('./fastly-solver');
 
@@ -727,33 +728,61 @@ async function servers(force = false) {
     } catch (e) { /* the cache */ }
     return s.servers || [];
 }
-/** A full TLS handshake with the server — at one of its addresses, when given: proof it answers from here, and its cost. */
-function handshakeMs(srv, timeoutMs = 4000, address = null) {
+/** Accurate TCP/TLS ping measurement with the server — proof it answers and its cost. */
+function handshakeMs(srv, timeoutMs = 3500, address = null) {
+    if (!srv) return Promise.resolve(null);
+    const host = address || srv.host;
+    const port = srv.port;
+    if (!host || !port) return Promise.resolve(null);
+
     return new Promise((resolve) => {
         const t0 = Date.now();
-        const sock = tls.connect({ host: address || srv.host, port: srv.port, servername: srv.host, ALPNProtocols: ['h2'] });
-        const done = (v) => { clearTimeout(t); try { sock.destroy(); } catch (e) { /* closed */ } resolve(v); };
+        let finished = false;
+        const done = (v) => {
+            if (finished) return;
+            finished = true;
+            clearTimeout(t);
+            resolve(v);
+        };
         const t = setTimeout(() => done(null), timeoutMs);
-        sock.once('secureConnect', () => done(Date.now() - t0));
-        sock.once('error', () => done(null));
+
+        // Accurate TCP SYN/ACK handshake (measures real RTT network ping and bypasses TLS SNI filtering)
+        const sock = nodeNet.connect({ host, port }, () => {
+            const dt = Date.now() - t0;
+            try { sock.destroy(); } catch (_) {}
+            done(dt);
+        });
+        sock.once('error', () => {
+            try { sock.destroy(); } catch (_) {}
+            done(null);
+        });
     });
 }
 const lookupAll = (host) => new Promise((r) => dns.lookup(host, { all: true, family: 4 }, (e, a) => r(e ? [] : a.map((x) => x.address))));
 let net = { ping: handshakeMs, lookup: lookupAll };
 
 async function pingAll(list, ping = net.ping) {
+    const srvList = (list && list.length && list[0].host) ? list : (await servers());
     const res = {};
     let i = 0;
-    const worker = async () => { while (i < list.length) { const s = list[i++]; res[s.country] = (await ping(s)) ?? -1; } };
+    const worker = async () => {
+        while (i < srvList.length) {
+            const s = srvList[i++];
+            if (!s) break;
+            res[s.country] = (await ping(s)) ?? -1;
+        }
+    };
     await Promise.all(Array.from({ length: 6 }, worker));
-    const st = load(); st.pings = Object.assign({}, st.pings, res, { at: Date.now() }); save(st);
+    const st = load();
+    st.pings = Object.assign({}, st.pings, res, { at: Date.now() });
+    save(st);
     return res;
 }
 
 /**
  * Where to connect, as on the phone: up to three servers for the choice — the one asked for, or the
  * fastest measured from here (measured now when the last measurement is old) — each tried with a real
- * TLS handshake at its own addresses. The first address that answers is the path; the next one of the
+ * TCP/TLS handshake at its own addresses. The first address that answers is the path; the next one of the
  * same server, when there is one, waits behind it in the balancer. Resolves { server, paths } or null.
  */
 async function findTarget(country = 'fastest') {
@@ -769,6 +798,7 @@ async function findTarget(country = 'fastest') {
         if (!(s.pings.at > Date.now() - PINGS_FRESH_MS) || !measured()) { await pingAll(list); s = load(); }
         const p = s.pings;
         cands = list.filter((x) => p[x.country] > 0).sort((a, b) => p[a.country] - p[b.country]);
+        if (!cands.length) cands = list.slice();
     }
     for (const srv of cands.slice(0, 3)) {
         const addrs = await net.lookup(srv.host);

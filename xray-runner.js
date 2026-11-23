@@ -19,7 +19,7 @@ let xrayProcess = null;
 let currentUri = null;
 let currentConfigPath = null;
 
-/** Locate xray.exe binary strictly from core/ or FENIX_XRAY_PATH */
+/** Locate xray.exe binary strictly from core/, packaged resources, AppData, or FENIX_XRAY_PATH */
 function getBinaryPath() {
     // 1. Environment variable override
     const envPath = process.env.FENIX_XRAY_PATH || process.env.XRAY_PATH;
@@ -36,9 +36,52 @@ function getBinaryPath() {
     const cwdCore = path.join(process.cwd(), 'core', 'xray.exe');
     if (fs.existsSync(cwdCore)) return cwdCore;
 
-    // 4. User AppData directory (for installed desktop packages)
+    // 4. Electron packaged resources (resources/core/xray.exe or root/core/xray.exe)
+    if (process.resourcesPath) {
+        const inRes = path.join(process.resourcesPath, 'core', 'xray.exe');
+        if (fs.existsSync(inRes)) return inRes;
+        const nextToRes = path.join(process.resourcesPath, '..', 'core', 'xray.exe');
+        if (fs.existsSync(nextToRes)) return nextToRes;
+        const unpacked = path.join(process.resourcesPath, 'app.asar.unpacked', 'core', 'xray.exe');
+        if (fs.existsSync(unpacked)) return unpacked;
+    }
+
+    // 5. Next to running executable (installed Fenix VPN.exe or portable temp extraction)
+    if (process.execPath) {
+        const nextToExe = path.join(path.dirname(process.execPath), 'core', 'xray.exe');
+        if (fs.existsSync(nextToExe)) return nextToExe;
+        const inExeRes = path.join(path.dirname(process.execPath), 'resources', 'core', 'xray.exe');
+        if (fs.existsSync(inExeRes)) return inExeRes;
+    }
+
+    // 6. User AppData / LocalAppData directories
     const appData = path.join(process.env.APPDATA || '', 'fenix-vpn', 'core', 'xray.exe');
     if (fs.existsSync(appData)) return appData;
+
+    const localAppData = path.join(process.env.LOCALAPPDATA || '', 'Programs', 'fenix-vpn', 'core', 'xray.exe');
+    if (fs.existsSync(localAppData)) return localAppData;
+
+    const localAppDataFenix = path.join(process.env.LOCALAPPDATA || '', 'fenix-vpn', 'core', 'xray.exe');
+    if (fs.existsSync(localAppDataFenix)) return localAppDataFenix;
+
+    // 7. Auto-detect from system development folders and cache into AppData
+    const knownFallbacks = [
+        path.join(process.env.USERPROFILE || '', 'Desktop', 'New folder', 'fenix-standalone', 'core', 'xray.exe'),
+        path.join(process.env.USERPROFILE || '', 'Desktop', 'New folder', 'mlmvpn_windows', 'core', 'xray.exe')
+    ];
+    for (const fb of knownFallbacks) {
+        if (fs.existsSync(fb)) {
+            try {
+                const targetDir = path.join(process.env.APPDATA || '', 'fenix-vpn', 'core');
+                if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+                const targetPath = path.join(targetDir, 'xray.exe');
+                if (!fs.existsSync(targetPath)) fs.copyFileSync(fb, targetPath);
+                return targetPath;
+            } catch (_) {
+                return fb;
+            }
+        }
+    }
 
     throw new Error('xray.exe binary was not found. Please place xray.exe in "core/xray.exe" or configure FENIX_XRAY_PATH in .env (see docs/BUILD.md).');
 }
