@@ -36,17 +36,20 @@ function isAllowedNavigationUrl(rawUrl, serverPort) {
 }
 
 async function createWindow(serverPort) {
+    const iconPath = path.join(__dirname, 'build', 'icon.png');
     mainWindow = new BrowserWindow({
-        width: 380,
-        height: 640,
+        width: 385,
+        height: 680,
         minWidth: 350,
         minHeight: 580,
-        maxWidth: 440,
-        maxHeight: 750,
+        maxWidth: 450,
+        maxHeight: 800,
+        useContentSize: true,
         resizable: true,
-        backgroundColor: '#121316',
+        backgroundColor: '#111215',
         autoHideMenuBar: true,
         title: 'BABA Tunnel',
+        icon: (typeof fs === 'object' && fs.existsSync && fs.existsSync(iconPath)) ? iconPath : undefined,
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,

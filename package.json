@@ -1,6 +1,6 @@
 {
   "name": "baba-tunnel",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "BABA Tunnel (BBT) — Powered by Mozilla VPN MASQUE proxy infrastructure and Xray-core",
   "main": "main.js",
   "scripts": {

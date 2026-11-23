@@ -61,8 +61,17 @@ html, body {
   font-family: var(--mv-font, "IRANSansX", Tahoma, sans-serif);
   color: var(--fnx-text-1);
   direction: rtl;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
+html::-webkit-scrollbar, body::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+#ls-bbt,
 #ls-fenix {
   width: 100%;
   height: 100%;
@@ -100,6 +109,23 @@ html, body {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.fnx-brand-logo {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  filter: drop-shadow(0 2px 8px rgba(255, 107, 0, 0.45));
+  transition: transform 0.25s ease, filter 0.25s ease;
+}
+
+.fnx-brand-logo:hover {
+  transform: scale(1.06);
+  filter: drop-shadow(0 3px 12px rgba(255, 107, 0, 0.7));
 }
 
 .fnx-brand-flame {
@@ -195,12 +221,21 @@ html, body {
 /* ── Main Content Area ───────────────────────────────────────────────────── */
 .fnx-body {
   flex: 1;
-  padding: 16px 16px 8px;
+  padding: 12px 14px 6px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
   overflow-y: auto;
+  overflow-x: hidden;
   position: relative;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.fnx-body::-webkit-scrollbar {
+  width: 0px !important;
+  height: 0px !important;
+  display: none !important;
 }
 
 /* ── Power Button Stage ──────────────────────────────────────────────────── */
@@ -209,27 +244,27 @@ html, body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 12px 0 8px;
+  padding: 6px 0 2px;
   position: relative;
 }
 
 .fnx-power-btn-wrap {
   position: relative;
-  width: 120px;
-  height: 120px;
+  width: 110px;
+  height: 110px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .fnx-power-btn {
-  width: 104px;
-  height: 104px;
+  width: 96px;
+  height: 96px;
   border-radius: 50%;
   background: linear-gradient(145deg, #1f2127 0%, #15161b 100%);
   border: 2px solid rgba(255, 255, 255, 0.08);
   color: var(--fnx-text-3);
-  font-size: 44px;
+  font-size: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -292,21 +327,21 @@ html, body {
 }
 
 .fnx-power-status {
-  margin-top: 10px;
+  margin-top: 6px;
   text-align: center;
 }
 
 .fnx-power-title {
-  font-size: 15px;
+  font-size: 14.5px;
   font-weight: 700;
   color: var(--fnx-text-1);
   margin-bottom: 2px;
 }
 
 .fnx-power-sub {
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--fnx-text-2);
-  line-height: 1.4;
+  line-height: 1.35;
 }
 
 /* ── Error / Alert Banner ────────────────────────────────────────────────── */
@@ -360,7 +395,7 @@ html, body {
   background: var(--fnx-surface);
   border: 1px solid var(--fnx-border);
   border-radius: var(--fnx-radius-md);
-  padding: 11px 14px;
+  padding: 9px 13px;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -374,8 +409,8 @@ html, body {
 }
 
 .fnx-card-icon {
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border-radius: var(--fnx-radius-sm);
   background: rgba(255, 255, 255, 0.04);
   display: flex;
@@ -446,10 +481,10 @@ html, body {
   background: var(--fnx-surface);
   border: 1px solid var(--fnx-border);
   border-radius: var(--fnx-radius-md);
-  padding: 10px 12px;
+  padding: 8px 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .fnx-mode-header {
@@ -476,7 +511,7 @@ html, body {
   font-size: 11.5px;
   font-weight: 500;
   font-family: inherit;
-  padding: 6px 4px;
+  padding: 5px 4px;
   cursor: pointer;
   text-align: center;
   transition: all 0.2s ease;
@@ -492,17 +527,17 @@ html, body {
   color: var(--fnx-text-1);
   font-weight: 700;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 107, 0, 0.35);
 }
 
 /* ── Footer Quota Bar ────────────────────────────────────────────────────── */
 .fnx-footer {
-  padding: 10px 16px 14px;
+  padding: 8px 16px 10px;
   border-top: 1px solid var(--fnx-border);
   background: rgba(17, 18, 21, 0.95);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
 }
 
 .fnx-quota-row {
@@ -979,20 +1014,25 @@ html, body {
 /* ── VPN Real-Time Traffic Widget ────────────────────────────────────────── */
 .vpn-traffic {
   width: 100%;
-  max-width: 280px;
-  margin: 0 auto;
-  padding: 10px 14px;
+  max-width: 100%;
+  margin: 0;
+  padding: 9px 13px;
   box-sizing: border-box;
-  background: #171b24;
+  background: var(--fnx-surface);
   color: #f1f5f9;
-  border: 1px solid #2a3040;
-  border-radius: 12px;
+  border: 1px solid var(--fnx-border);
+  border-radius: var(--fnx-radius-md);
   font-family: inherit;
   font-size: 12px;
   direction: ltr;
   text-align: left;
-  transition: all 0.3s ease;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  transition: all 0.25s ease;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
+}
+
+.vpn-traffic:hover {
+  background: var(--fnx-surface-hover);
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
 .vpn-traffic__status {
@@ -1000,8 +1040,8 @@ html, body {
   align-items: center;
   gap: 7px;
   color: #aab5c5;
-  font-size: 11px;
-  margin-bottom: 9px;
+  font-size: 10.5px;
+  margin-bottom: 7px;
   font-weight: 500;
 }
 

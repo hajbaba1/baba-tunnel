@@ -747,7 +747,7 @@
   <!-- Top Bar -->
   <header class="fnx-topbar">
     <div class="fnx-brand">
-      <img src="/assets/logo.png" alt="BABA Tunnel" style="width:28px;height:28px;border-radius:6px;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.4);">
+      <img src="/assets/logo.png" alt="BABA Tunnel" class="fnx-brand-logo">
       <div class="fnx-brand-name">BABA TUNNEL</div>
     </div>
     <div class="fnx-topbar-actions">
@@ -1004,7 +1004,7 @@
         <!-- About Pane -->
         <div class="fnx-dpane" id="fnx-dpane-about">
           <div class="fnx-sub-card" style="line-height:1.8;font-size:12px;">
-            <p style="font-weight:700; font-size:14px; margin-bottom:2px; color:var(--fnx-text-1);">BABA Tunnel v1.0.0 (BBT)</p>
+            <p style="font-weight:700; font-size:14px; margin-bottom:2px; color:var(--fnx-text-1);">BABA Tunnel v1.0.1 (BBT)</p>
             <p style="font-size:12px; margin-bottom:10px; color:var(--fnx-text-2);">
               طراحی و توسعه : <a href="https://github.com/hajbaba1" target="_blank" rel="noopener noreferrer" style="color:var(--fnx-flame-1); font-weight:700; text-decoration:none; cursor:pointer;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'" title="مشاهده گیت‌هاب Hajbaba">Hajbaba</a>
             </p>

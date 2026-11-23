@@ -22,6 +22,13 @@
       font-family: var(--mv-font);
       color: var(--mv-label);
       user-select: none;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+    html::-webkit-scrollbar, body::-webkit-scrollbar {
+      display: none !important;
+      width: 0 !important;
+      height: 0 !important;
     }
     #ls-bbt, #ls-fenix {
       width: 100%;
