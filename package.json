@@ -33,8 +33,8 @@
     },
     "extraFiles": [
       {
-        "from": "core/xray.exe",
-        "to": "core/xray.exe"
+        "from": "core/",
+        "to": "core/"
       },
       {
         "from": "LICENSE",
@@ -47,8 +47,8 @@
     ],
     "extraResources": [
       {
-        "from": "core/xray.exe",
-        "to": "core/xray.exe"
+        "from": "core/",
+        "to": "core/"
       }
     ],
     "files": [

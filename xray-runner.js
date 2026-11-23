@@ -72,11 +72,18 @@ function getBinaryPath() {
     for (const fb of knownFallbacks) {
         if (fs.existsSync(fb)) {
             try {
+                const srcDir = path.dirname(fb);
                 const targetDir = path.join(process.env.APPDATA || '', 'fenix-vpn', 'core');
                 if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+                for (const file of ['xray.exe', 'geoip.dat', 'geosite.dat']) {
+                    const srcFile = path.join(srcDir, file);
+                    const dstFile = path.join(targetDir, file);
+                    if (fs.existsSync(srcFile) && !fs.existsSync(dstFile)) {
+                        fs.copyFileSync(srcFile, dstFile);
+                    }
+                }
                 const targetPath = path.join(targetDir, 'xray.exe');
-                if (!fs.existsSync(targetPath)) fs.copyFileSync(fb, targetPath);
-                return targetPath;
+                return fs.existsSync(targetPath) ? targetPath : fb;
             } catch (_) {
                 return fb;
             }
@@ -133,9 +140,18 @@ async function start(uriConfig) {
 
     return new Promise(async (resolve, reject) => {
         let resolved = false;
+        let stdoutBuf = '';
+        let stderrBuf = '';
+
+        const assetDir = path.dirname(bin);
+        const childEnv = Object.assign({}, process.env, {
+            XRAY_LOCATION_ASSET: assetDir,
+        });
 
         try {
             xrayProcess = spawn(bin, ['run', '-c', currentConfigPath], {
+                cwd: assetDir,
+                env: childEnv,
                 windowsHide: true,
                 stdio: ['ignore', 'pipe', 'pipe'],
             });
@@ -147,11 +163,11 @@ async function start(uriConfig) {
         currentUri = typeof uriConfig === 'string' ? uriConfig : JSON.stringify(uriConfig);
 
         xrayProcess.stdout.on('data', (d) => {
-            // debug logging if needed
+            stdoutBuf += d.toString();
         });
 
         xrayProcess.stderr.on('data', (d) => {
-            // stderr logging
+            stderrBuf += d.toString();
         });
 
         xrayProcess.on('error', (err) => {
@@ -167,7 +183,9 @@ async function start(uriConfig) {
             cleanupTemp();
             if (!resolved) {
                 resolved = true;
-                reject(new Error(`Xray exited prematurely with code ${code}`));
+                const errDetail = (stderrBuf || stdoutBuf || '').trim();
+                const firstErrLine = errDetail.split('\n').find((l) => /failed|error|fatal|illegal/i.test(l)) || errDetail.slice(0, 160);
+                reject(new Error(`Xray exited with code ${code}${firstErrLine ? ': ' + firstErrLine.trim() : ''}`));
             }
         });
 

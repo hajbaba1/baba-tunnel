@@ -28,6 +28,7 @@ const os = require('os');
 const tls = require('tls');
 const dns = require('dns');
 const path = require('path');
+const http = require('http');
 const nodeNet = require('net');
 const crypto = require('crypto');
 const solver = require('./fastly-solver');
@@ -728,12 +729,11 @@ async function servers(force = false) {
     } catch (e) { /* the cache */ }
     return s.servers || [];
 }
-/** Accurate TCP/TLS ping measurement with the server — proof it answers and its cost. */
+/** Accurate end-to-end network ping measurement to the server */
 function handshakeMs(srv, timeoutMs = 3500, address = null) {
     if (!srv) return Promise.resolve(null);
     const host = address || srv.host;
-    const port = srv.port;
-    if (!host || !port) return Promise.resolve(null);
+    if (!host) return Promise.resolve(null);
 
     return new Promise((resolve) => {
         const t0 = Date.now();
@@ -746,14 +746,33 @@ function handshakeMs(srv, timeoutMs = 3500, address = null) {
         };
         const t = setTimeout(() => done(null), timeoutMs);
 
-        // Accurate TCP SYN/ACK handshake (measures real RTT network ping and bypasses TLS SNI filtering)
-        const sock = nodeNet.connect({ host, port }, () => {
-            const dt = Date.now() - t0;
-            try { sock.destroy(); } catch (_) {}
-            done(dt);
+        // Send a lightweight HTTP GET to Fastly edge to measure true internet RTT (bypasses local TUN interception)
+        const req = http.get({
+            host,
+            port: 80,
+            path: '/',
+            headers: { 'User-Agent': 'Mozilla/5.0' },
+            timeout: timeoutMs,
+        }, (res) => {
+            res.resume();
+            done(Date.now() - t0);
         });
-        sock.once('error', () => {
-            try { sock.destroy(); } catch (_) {}
+
+        req.on('error', () => {
+            // Fallback: try direct TCP handshake to srv.port
+            const sock = nodeNet.connect({ host, port: srv.port || 2499 }, () => {
+                const dt = Date.now() - t0;
+                try { sock.destroy(); } catch (_) {}
+                done(dt);
+            });
+            sock.once('error', () => {
+                try { sock.destroy(); } catch (_) {}
+                done(null);
+            });
+        });
+
+        req.on('timeout', () => {
+            req.destroy();
             done(null);
         });
     });

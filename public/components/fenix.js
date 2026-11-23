@@ -320,10 +320,17 @@
         }
         if (iconBtn) iconBtn.classList.add('is-spinning');
         log('— سنجش پینگ و کیفیت اتصال به تمام سرورها…');
+
+        // Reset visible pings immediately so user gets real-time measurement feedback
+        if (st.data && st.data.pings) {
+            st.data.pings = {};
+        }
+        renderServerList();
+
         try {
             await api('fenix/ping');
-            // Poll for completion up to 15 seconds
-            for (let i = 0; i < 15; i++) {
+            // Poll for completion up to 20 seconds
+            for (let i = 0; i < 20; i++) {
                 await new Promise((r) => setTimeout(r, 1000));
                 const d = await api('fenix');
                 st.data = d;
@@ -645,7 +652,9 @@
             const pingVal = (pings[cc] != null) ? pings[cc] : (s.ms != null ? s.ms : null);
             let pingDot = '';
             let pingText = '—';
-            if (pingVal != null && pingVal > 0) {
+            if (st.pinging) {
+                pingText = '<i class="ph-bold ph-spinner is-spinning" style="font-size:12px;"></i>';
+            } else if (pingVal != null && pingVal > 0) {
                 pingDot = pingVal < 180 ? 'is-good' : pingVal < 320 ? 'is-mid' : 'is-slow';
                 pingText = `${fa(pingVal)} ms`;
             } else if (pingVal === -1) {
