@@ -365,6 +365,16 @@
         }
     }
 
+    async function toggleAutoReconnect(enabled) {
+        try {
+            await api('fenix/autoreconnect', { enabled });
+            log(enabled ? '🔄 اتصال مجدد خودکار فعال شد.' : 'اتصال مجدد خودکار غیرفعال شد.');
+            await refresh();
+        } catch (e) {
+            log(`✗ خطا در تغییر وضعیت اتصال مجدد: ${e.message}`);
+        }
+    }
+
     // ── Sheet & Drawer Toggles ─────────────────────────────────────────────
     function openServerSheet() {
         st.serverSheetOpen = true;
@@ -444,6 +454,10 @@
         if (toggle && ks) {
             toggle.checked = !!ks.enabled;
         }
+        const autoToggle = $('fnx-autoreconnect-toggle');
+        if (autoToggle) {
+            autoToggle.checked = (session().autoReconnect !== undefined) ? !!session().autoReconnect : true;
+        }
     }
 
     function renderTopBar() {
@@ -451,7 +465,11 @@
         if (!pill) return;
 
         pill.className = 'fnx-status-pill';
-        if (isConnecting() || st.routing) {
+        const ses = session();
+        if (ses.step === 'reconnect' || ses.reconnectAttempts > 0) {
+            pill.classList.add('is-busy');
+            pill.innerHTML = `<span class="fnx-status-dot"></span> تلاش مجدد (${fa(ses.reconnectAttempts || 1)})…`;
+        } else if (isConnecting() || st.routing) {
             pill.classList.add('is-busy');
             pill.innerHTML = '<span class="fnx-status-dot"></span> در حال اتصال…';
         } else if (isOn()) {
@@ -472,14 +490,21 @@
         btn.className = 'fnx-power-btn';
         if (wrap) wrap.className = 'fnx-power-btn-wrap';
 
-        if (isConnecting() || st.routing) {
+        const ses = session();
+        if (ses.step === 'reconnect' || ses.reconnectAttempts > 0) {
+            btn.classList.add('is-busy');
+            if (wrap) wrap.classList.add('is-busy');
+            const target = ses.country || prefs().country;
+            const cnt = ses.reconnectAttempts || 1;
+            if (title) title.textContent = `تلاش مجدد برای اتصال (${fa(cnt)})…`;
+            if (sub) sub.textContent = `${countryName(target)} — برای لغو کلیک کنید`;
+        } else if (isConnecting() || st.routing) {
             btn.classList.add('is-busy');
             if (wrap) wrap.classList.add('is-busy');
             if (title) title.textContent = st.routing ? 'در حال تنظیم مسیر…' : 'در حال برقراری اتصال…';
             if (sub) sub.textContent = 'برای لغو کلیک کنید';
         } else if (isOn()) {
             btn.classList.add('is-on');
-            const ses = session();
             const exit = (ses.exit && ses.exit.loc) || prefs().country;
             if (title) title.textContent = 'شما متصل هستید';
             if (sub) sub.textContent = `خروج از ${countryName(exit) || exit} — برای قطع کلیک کنید`;
@@ -879,6 +904,28 @@
             </div>
           </div>
 
+          <!-- Auto-Reconnect Card -->
+          <div class="fnx-sub-card">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+              <div>
+                <div class="fnx-sub-title" style="margin-bottom:3px;display:flex;align-items:center;gap:6px;">
+                  <i class="ph-fill ph-arrows-clockwise" style="color:var(--fnx-flame-1);font-size:16px;"></i>
+                  اتصال مجدد خودکار (Auto-Reconnect)
+                </div>
+                <div style="font-size:11.5px;color:var(--fnx-text-2);line-height:1.5;">
+                  تلاش مداوم برای اتصال مجدد با لوکیشن انتخابی در صورت قطعی
+                </div>
+              </div>
+              <label class="fnx-switch">
+                <input type="checkbox" id="fnx-autoreconnect-toggle" checked />
+                <span class="fnx-slider"></span>
+              </label>
+            </div>
+            <div style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:var(--fnx-text-3);line-height:1.5;">
+              در صورت قطع اینترنت یا افت اتصال، برنامه بلافاصله تلاش مجدد می‌کند و لوکیشن سرور انتخابی تغییر نخواهد کرد.
+            </div>
+          </div>
+
           <div class="fnx-sub-card">
             <div class="fnx-sub-title">پورت‌های محلی Xray:</div>
             <div class="fnx-sub-line">
@@ -980,6 +1027,12 @@
         const ksToggle = $('fnx-ks-toggle');
         if (ksToggle) {
             ksToggle.onchange = (e) => toggleKillSwitch(e.target.checked);
+        }
+
+        // Auto-reconnect toggle
+        const autoReconnectToggle = $('fnx-autoreconnect-toggle');
+        if (autoReconnectToggle) {
+            autoReconnectToggle.onchange = (e) => toggleAutoReconnect(e.target.checked);
         }
 
         // Kill Switch quick disable button

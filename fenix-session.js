@@ -68,6 +68,14 @@ function create(deps) {
     let renewing = false;
     let stopping = null;   // the stop in progress: a second caller waits for it instead of stopping twice
     let downSince = 0;     // when the engine was first seen not running under this connection
+    let autoReconnect = true; // Auto-reconnect when connection drops unexpectedly
+    let desiredCountry = null;
+    let desiredAccountId = null;
+    let reconnectAttempts = 0;
+    let reconnectTimer = null;
+    let verifying = false;
+    let consecutiveVerifyFailures = 0;
+    let tickCount = 0;
 
     const ours = (uri) => !!(uri && d.liveUri() === uri);
     const carrying = (uri) => ours(uri) && !!d.running();
@@ -83,10 +91,10 @@ function create(deps) {
         const uri = s && s.uri;
         return {
             phase: s ? s.phase : 'off',            // off | connecting | on | renewing | stopping
-            step: (s && s.step) || '',             // server | pass | tunnel | check  (while connecting)
+            step: (s && s.step) || '',             // server | pass | tunnel | check | reconnect  (while connecting)
             live: carrying(uri),                   // the engine is carrying THIS connection's config now
-            country: s ? s.country : null,         // what was asked: 'fastest' or a code
-            accountId: s ? s.accountId : null,     // what was asked; null = the first signed-in account
+            country: s ? s.country : desiredCountry, // what was asked: 'fastest' or a code
+            accountId: s ? s.accountId : desiredAccountId, // what was asked; null = the first signed-in account
             server: s && s.server ? { country: s.server.country, host: s.server.host } : null,
             account: s && s.account ? { id: s.account.id, email: s.account.email } : null,
             exit: (s && s.exit) || null,
@@ -98,6 +106,9 @@ function create(deps) {
             renewError: (s && s.renewError) || '',
             connectedAt: (s && s.connectedAt) || 0,
             last,
+            autoReconnect,
+            reconnectAttempts,
+            isReconnecting: reconnectAttempts > 0 && (!s || s.phase === 'connecting'),
         };
     }
 
@@ -114,14 +125,36 @@ function create(deps) {
     }
 
     /** Connect. Resolves the status, or { cancelled:true } when a stop overtook it; throws a FenixError. */
-    async function connect({ country = 'fastest', accountId = null } = {}) {
-        if (s && (s.phase === 'connecting' || s.phase === 'stopping')) throw new fx.FenixError('یک اتصال در جریان است — صبر کنید یا لغو کنید.', 'BUSY');
+    async function connect({ country = 'fastest', accountId = null, isReconnect = false } = {}) {
+        if (!isReconnect) {
+            clearTimeout(reconnectTimer);
+            reconnectTimer = null;
+            reconnectAttempts = 0;
+        }
+        if (s && s.phase === 'connecting' && !isReconnect) {
+            throw new fx.FenixError('یک اتصال در جریان است — صبر کنید یا لغو کنید.', 'BUSY');
+        }
+        if (s && s.phase === 'stopping') {
+            throw new fx.FenixError('اتصال در حال قطع شدن است — کمی صبر کنید.', 'BUSY');
+        }
+
+        // Remember the selected location so auto-reconnect can preserve it
+        desiredCountry = country || 'fastest';
+        desiredAccountId = accountId || null;
+
         // A change of country while connected: the connection that is up stays this session's until the
         // new config replaces it on the engine.
         const prev = s && (s.phase === 'on' || s.phase === 'renewing') && s.uri ? s : null;
         const my = ++attempt;
         stopTimer();
-        s = { phase: 'connecting', step: 'server', country: country || 'fastest', accountId: accountId || null, startedAt: d.now() };
+        s = {
+            phase: 'connecting',
+            step: isReconnect ? 'reconnect' : 'server',
+            country: desiredCountry,
+            accountId: desiredAccountId,
+            startedAt: d.now(),
+            reconnectAttempts,
+        };
         last = null;
         emit();
         const alive = () => my === attempt;
@@ -130,7 +163,7 @@ function create(deps) {
         // Whatever this attempt started is its own to stop — never a config someone else put up since.
         const cleanUp = async () => { if (ours(startedUri)) { try { await stopNow(); } catch (e) { /* reported by the caller */ } } };
         try {
-            const prep = await fx.prepare({ accountId, country, onStep });
+            const prep = await fx.prepare({ accountId: desiredAccountId, country: desiredCountry, onStep });
             if (!alive()) { await cleanUp(); return { cancelled: true }; }
             const target = { server: prep.server, paths: prep.paths };
             Object.assign(s, { server: prep.server, account: prep.account });
@@ -166,6 +199,8 @@ function create(deps) {
                 });
                 try { d.remember({ country: s.country, accountId: s.accountId }); } catch (e) { /* nothing kept */ }
                 downSince = 0;
+                reconnectAttempts = 0;
+                consecutiveVerifyFailures = 0;
                 startTimer();
                 emit();
                 return status();
@@ -185,16 +220,64 @@ function create(deps) {
             }
             await cleanUp();
             s = null;
-            last = { at: d.now(), why: 'failed', error: e.message, code: e.code || null };
+            last = { at: d.now(), why: isReconnect ? 'reconnect-failed' : 'failed', error: e.message, code: e.code || null };
             emit();
+            if (isReconnect && autoReconnect && desiredCountry) {
+                scheduleAutoReconnect();
+            }
             throw e;
         }
+    }
+
+    function triggerAutoReconnect(country, accountId) {
+        if (!autoReconnect || !country) return;
+        clearTimeout(reconnectTimer);
+        reconnectAttempts++;
+        s = {
+            phase: 'connecting',
+            step: 'reconnect',
+            country,
+            accountId,
+            reconnectAttempts,
+            startedAt: d.now(),
+        };
+        emit();
+
+        // Immediate retry on first drop (0-150ms); subsequent retries back off to 3 seconds
+        const delay = reconnectAttempts <= 1 ? 150 : 3000;
+        reconnectTimer = setTimeout(async () => {
+            if (!autoReconnect || desiredCountry !== country) return;
+            try {
+                await connect({ country, accountId, isReconnect: true });
+            } catch (e) {
+                // If connect failed (e.g. internet still down), schedule next attempt
+                if (autoReconnect && desiredCountry === country) {
+                    scheduleAutoReconnect();
+                }
+            }
+        }, delay);
+        if (reconnectTimer.unref) reconnectTimer.unref();
+    }
+
+    function scheduleAutoReconnect() {
+        if (!autoReconnect || !desiredCountry) return;
+        clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(async () => {
+            if (!autoReconnect || !desiredCountry) return;
+            triggerAutoReconnect(desiredCountry, desiredAccountId);
+        }, 3000);
+        if (reconnectTimer.unref) reconnectTimer.unref();
     }
 
     /** End the connection, or the attempt in progress. Only FENIX's own config is ever stopped. */
     async function disconnect() {
         attempt++;
         stopTimer();
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+        desiredCountry = null;
+        desiredAccountId = null;
+        reconnectAttempts = 0;
         const had = s;
         s = { phase: 'stopping', step: '', country: had ? had.country : null, accountId: had ? had.accountId : null };
         emit();
@@ -228,10 +311,15 @@ function create(deps) {
         if (why) {
             // Over: say so, and renew nothing — a renewal now would put FENIX back over whatever replaced it.
             last = { at: d.now(), why };
+            const hadCountry = desiredCountry || (s && s.country);
+            const hadAccount = desiredAccountId || (s && s.accountId);
             s = null;
             downSince = 0;
             stopTimer();
             emit();
+            if (autoReconnect && hadCountry && why !== 'replaced') {
+                triggerAutoReconnect(hadCountry, hadAccount);
+            }
         }
         return status();
     }
@@ -239,6 +327,40 @@ function create(deps) {
     async function tick() {
         check();
         if (!s || s.phase !== 'on' || renewing || !d.running()) return;
+
+        // Periodic health verification every 4 ticks (~10s)
+        tickCount++;
+        if (tickCount % 4 === 0 && !verifying) {
+            verifying = true;
+            try {
+                const v = await d.verify();
+                if (v && v.ok) {
+                    consecutiveVerifyFailures = 0;
+                } else {
+                    consecutiveVerifyFailures++;
+                }
+            } catch (e) {
+                consecutiveVerifyFailures++;
+            } finally {
+                verifying = false;
+            }
+
+            if (consecutiveVerifyFailures >= 2) {
+                consecutiveVerifyFailures = 0;
+                last = { at: d.now(), why: 'dropped', error: 'ترافیک از تونل عبور نمی‌کند (قطعی ارتباط)' };
+                const hadCountry = desiredCountry || (s && s.country);
+                const hadAccount = desiredAccountId || (s && s.accountId);
+                try { await stopNow(); } catch (e) {}
+                s = null;
+                stopTimer();
+                emit();
+                if (autoReconnect && hadCountry) {
+                    triggerAutoReconnect(hadCountry, hadAccount);
+                }
+                return;
+            }
+        }
+
         if (nowS() < s.renewAt) return;
         await renew();
     }
@@ -299,7 +421,25 @@ function create(deps) {
         }
     }
 
-    return { connect, disconnect, status, check, tick, owns: () => !!(s && carrying(s.uri)) };
+    return {
+        connect,
+        disconnect,
+        status,
+        check,
+        tick,
+        owns: () => !!(s && carrying(s.uri)),
+        setAutoReconnect: (val) => {
+            autoReconnect = Boolean(val);
+            if (!autoReconnect) {
+                clearTimeout(reconnectTimer);
+                reconnectTimer = null;
+                reconnectAttempts = 0;
+            }
+            emit();
+            return autoReconnect;
+        },
+        getAutoReconnect: () => autoReconnect,
+    };
 }
 
 module.exports = { create, isFenixUri, renewAtFor, TICK_MS, RETRY_S, STILL_DOWN_MS };

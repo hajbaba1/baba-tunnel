@@ -223,6 +223,34 @@ test('security-routes: error responses from signin/code/connect do not leak secr
         });
         assert.strictEqual(resPing.status, 200);
         assert.ok(resPing.json.status === 'started' || resPing.json.status === 'already_running');
+
+        // Test Auto-Reconnect routes
+        const resArGet = await httpRequest({
+            port,
+            path: '/api/fenix/autoreconnect',
+            headers: authHeaders,
+        });
+        assert.strictEqual(resArGet.status, 200);
+        assert.strictEqual(typeof resArGet.json.enabled, 'boolean');
+
+        const resArPost = await httpRequest({
+            port,
+            path: '/api/fenix/autoreconnect',
+            method: 'POST',
+            headers: authHeaders,
+            body: { enabled: false },
+        });
+        assert.strictEqual(resArPost.status, 200);
+        assert.strictEqual(resArPost.json.enabled, false);
+
+        // Reset back to true
+        await httpRequest({
+            port,
+            path: '/api/fenix/autoreconnect',
+            method: 'POST',
+            headers: authHeaders,
+            body: { enabled: true },
+        });
     } finally {
         server.close();
     }

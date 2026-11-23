@@ -230,6 +230,19 @@ function createFenixRouter(eventEmitter) {
         return status;
     }));
 
+    // GET /api/fenix/autoreconnect — Get auto-reconnect setting
+    router.get('/api/fenix/autoreconnect', fenixHandle(async () => {
+        return { enabled: getSession().getAutoReconnect() };
+    }));
+
+    // POST /api/fenix/autoreconnect — Toggle auto-reconnect
+    router.post('/api/fenix/autoreconnect', fenixHandle(async (b) => {
+        const enabled = Boolean(b && b.enabled);
+        const val = getSession().setAutoReconnect(enabled);
+        broadcast('fenix-state', { autoReconnect: val });
+        return { enabled: val };
+    }));
+
     // POST /api/fenix/connect — Connect to a country/server
     router.post('/api/fenix/connect', fenixHandle(async (b) => {
         let country = String(b.country || '').trim().toUpperCase();
