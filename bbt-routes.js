@@ -15,6 +15,7 @@ const systemProxy = require('./system-proxy');
 const killSwitch = require('./kill-switch');
 const trafficMonitor = require('./traffic-monitor');
 const tunManager = require('./tun-manager');
+const elevationStartup = require('./elevation-startup');
 
 const ALLOWED_CHALLENGE_HOSTS = new Set([
     '',
@@ -28,6 +29,7 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const CODE_REGEX = /^\d{6,8}$/;
 const HEX_ID_REGEX = /^[0-9a-fA-F]{10,64}$/;
 const COUNTRY_REGEX = /^[A-Z]{2}$/;
+const VALID_COVERAGES = new Set(['proxy', 'system', 'tunnel']);
 
 function createBbtRouter(eventEmitter) {
     const router = express.Router();
@@ -90,6 +92,11 @@ function createBbtRouter(eventEmitter) {
             },
         });
 
+        // Hydrate persisted auto-reconnect preference on initial session creation
+        try {
+            bbtLive.setAutoReconnect(fx.getPrefs().autoReconnect);
+        } catch (_) {}
+
         return bbtLive;
     }
 
@@ -114,12 +121,16 @@ function createBbtRouter(eventEmitter) {
         const session = getSession().check();
         const ports = xrayRunner.getPorts();
         const currentProxy = await systemProxy.readCurrentProxy();
+        const savedPrefs = fx.getPrefs();
         const out = Object.assign({
             ping: bbtPing,
             session,
             ports,
             killSwitch: killSwitch.getStatus(),
             autoReconnect: getSession().getAutoReconnect(),
+            isAdmin: elevationStartup.isRunningAsAdminSync(),
+            autoStart: elevationStartup.getCachedStatus(),
+            prefs: savedPrefs,
         }, fx.status());
 
         out.route = {
@@ -247,8 +258,87 @@ function createBbtRouter(eventEmitter) {
     router.post(['/api/bbt/autoreconnect', '/api/fenix/autoreconnect'], bbtHandle(async (b) => {
         const enabled = Boolean(b && b.enabled);
         const val = getSession().setAutoReconnect(enabled);
+        fx.setPrefs({ autoReconnect: val });
         broadcast('bbt-state', { autoReconnect: val });
         return { enabled: val };
+    }));
+
+    // GET /api/bbt/prefs — Read persistent user preferences (country, coverage, account, switches)
+    router.get(['/api/bbt/prefs', '/api/fenix/prefs'], bbtHandle(async () => {
+        return { prefs: fx.getPrefs() };
+    }));
+
+    // POST /api/bbt/prefs — Persist user preferences cleanly to disk
+    router.post(['/api/bbt/prefs', '/api/fenix/prefs'], bbtHandle(async (b) => {
+        const patch = {};
+        if (b && b.country !== undefined) {
+            const c = String(b.country || '').trim();
+            if (/^fastest$/i.test(c)) {
+                patch.country = 'fastest';
+            } else if (/^[a-zA-Z]{2}$/.test(c)) {
+                patch.country = c.toUpperCase();
+            } else {
+                const err = new Error('کد کشور نامعتبر است.');
+                err.code = 'INVALID_INPUT';
+                throw err;
+            }
+        }
+        if (b && b.coverage !== undefined) {
+            const cov = String(b.coverage || '').trim().toLowerCase();
+            if (!VALID_COVERAGES.has(cov)) {
+                const err = new Error('حالت عبور ترافیک نامعتبر است.');
+                err.code = 'INVALID_INPUT';
+                throw err;
+            }
+            patch.coverage = cov;
+        }
+        if (b && (b.accountId !== undefined || b.account !== undefined)) {
+            const acc = String((b.accountId !== undefined ? b.accountId : b.account) || '').trim().toLowerCase();
+            if (acc !== '' && !HEX_ID_REGEX.test(acc)) {
+                const err = new Error('شناسه حساب نامعتبر است.');
+                err.code = 'INVALID_INPUT';
+                throw err;
+            }
+            patch.accountId = acc;
+        }
+        if (b && b.autoReconnect !== undefined) {
+            if (typeof b.autoReconnect !== 'boolean') {
+                const err = new Error('مقدار اتصال مجدد باید بولین باشد.');
+                err.code = 'INVALID_INPUT';
+                throw err;
+            }
+            patch.autoReconnect = b.autoReconnect;
+            getSession().setAutoReconnect(patch.autoReconnect);
+        }
+        if (b && b.autoStart !== undefined) {
+            if (typeof b.autoStart !== 'boolean') {
+                const err = new Error('مقدار اجرای خودکار باید بولین باشد.');
+                err.code = 'INVALID_INPUT';
+                throw err;
+            }
+            await elevationStartup.setAutoStart(b.autoStart);
+            patch.autoStart = b.autoStart;
+        }
+
+        const prefs = fx.setPrefs(patch);
+        broadcast('bbt-state', { prefs });
+        return { prefs };
+    }));
+
+    // GET /api/bbt/autostart — Live query Windows startup task & admin status
+    router.get(['/api/bbt/autostart', '/api/fenix/autostart'], bbtHandle(async () => {
+        const st = await elevationStartup.queryAutoStartTask();
+        const p = fx.getPrefs();
+        return Object.assign({ enabled: p.autoStart }, st);
+    }));
+
+    // POST /api/bbt/autostart — Enable or disable elevated Windows startup task
+    router.post(['/api/bbt/autostart', '/api/fenix/autostart'], bbtHandle(async (b) => {
+        const enabled = Boolean(b && b.enabled);
+        const st = await elevationStartup.setAutoStart(enabled);
+        const prefs = fx.setPrefs({ autoStart: enabled });
+        broadcast('bbt-state', { autoStart: st, prefs });
+        return Object.assign({ enabled: prefs.autoStart, prefs }, st);
     }));
 
     // GET /api/traffic (and /api/bbt/traffic, /api/fenix/traffic) — Live traffic stats
@@ -259,16 +349,25 @@ function createBbtRouter(eventEmitter) {
     // POST /api/bbt/connect — Connect to a country/server
     router.post(['/api/bbt/connect', '/api/fenix/connect'], bbtHandle(async (b) => {
         trafficMonitor.resetSession();
-        let country = String(b.country || '').trim().toUpperCase();
+        const rawCountry = String(b.country || '').trim().toUpperCase();
+        const validCountryProvided = rawCountry === 'FASTEST' || COUNTRY_REGEX.test(rawCountry);
+        let country = rawCountry;
         if (country !== 'FASTEST' && !COUNTRY_REGEX.test(country)) {
             country = 'fastest';
         } else if (country === 'FASTEST') {
             country = 'fastest';
         }
 
-        let accountId = b.accountId ? String(b.accountId).trim() : null;
+        let accountId = b.accountId ? String(b.accountId).trim().toLowerCase() : null;
         if (accountId && !HEX_ID_REGEX.test(accountId)) {
             accountId = null;
+        }
+
+        const prefPatch = {};
+        if (validCountryProvided) prefPatch.country = country;
+        if (accountId) prefPatch.accountId = accountId;
+        if (Object.keys(prefPatch).length > 0) {
+            fx.setPrefs(prefPatch);
         }
 
         const session = await getSession().connect({

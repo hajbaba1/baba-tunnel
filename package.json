@@ -1,6 +1,6 @@
 {
   "name": "baba-tunnel",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "BABA Tunnel (BBT) — Powered by Mozilla VPN MASQUE proxy infrastructure and Xray-core",
   "main": "main.js",
   "scripts": {
@@ -27,7 +27,11 @@
         "nsis",
         "portable"
       ],
-      "icon": "build/icon.ico"
+      "icon": "build/icon.ico",
+      "requestedExecutionLevel": "requireAdministrator"
+    },
+    "portable": {
+      "requestExecutionLevel": "admin"
     },
     "nsis": {
       "oneClick": false,

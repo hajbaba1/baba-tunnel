@@ -11,6 +11,7 @@ const http = require('http');
 const crypto = require('crypto');
 const express = require('express');
 const { EventEmitter } = require('events');
+const fx = require('./bbt-core');
 const { createBbtRouter, createFenixRouter } = require('./bbt-routes');
 
 function createApp(sessionToken = crypto.randomBytes(24).toString('hex')) {
@@ -68,12 +69,13 @@ function createApp(sessionToken = crypto.randomBytes(24).toString('hex')) {
     // 3. Mount BABA Tunnel (BBT) API routes
     app.use(createBbtRouter ? createBbtRouter(eventEmitter) : createFenixRouter(eventEmitter));
 
-    // 4. Serve index.html with injected session token
+    // 4. Serve index.html with injected session token and saved persistent preferences
     const indexPath = path.join(__dirname, 'public', 'index.html');
     app.get(['/', '/index.html'], (req, res) => {
         try {
             let html = fs.readFileSync(indexPath, 'utf8');
-            const tokenScript = `<script>window.__BBT_TOKEN__ = ${JSON.stringify(sessionToken)}; window.__FENIX_TOKEN__ = window.__BBT_TOKEN__;</script>`;
+            const initialPrefs = fx.getPrefs();
+            const tokenScript = `<script>window.__BBT_TOKEN__ = ${JSON.stringify(sessionToken)}; window.__FENIX_TOKEN__ = window.__BBT_TOKEN__; window.__BBT_INITIAL_PREFS__ = ${JSON.stringify(initialPrefs)};</script>`;
             html = html.replace('</head>', `${tokenScript}\n</head>`);
             res.setHeader('Content-Type', 'text/html; charset=utf-8');
             res.setHeader('Cache-Control', 'no-store');

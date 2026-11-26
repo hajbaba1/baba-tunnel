@@ -34,6 +34,13 @@ const crypto = require('crypto');
 const solver = require('./fastly-solver');
 
 function getStorageDir() {
+    if (process.env.BBT_STORAGE_DIR) {
+        const customDir = path.resolve(process.env.BBT_STORAGE_DIR);
+        if (!fs.existsSync(customDir)) {
+            try { fs.mkdirSync(customDir, { recursive: true }); } catch (e) {}
+        }
+        return customDir;
+    }
     const base = process.env.APPDATA || (process.platform === 'darwin' ? path.join(os.homedir(), 'Library', 'Application Support') : path.join(os.homedir(), '.config'));
     const dir = path.join(base, 'baba-tunnel');
     if (!fs.existsSync(dir)) {
@@ -67,6 +74,7 @@ function getStorageDir() {
     return dir;
 }
 const FILE = path.join(getStorageDir(), 'bbt.json');
+const getDataFile = () => (process.env.BBT_STORAGE_DIR ? path.join(getStorageDir(), 'bbt.json') : FILE);
 let AUTH = 'https://api.accounts.firefox.com/v1';
 /** Mozilla's OAuth server: its `/token` is the token endpoint accounts.firefox.com/.well-known/openid-configuration names. */
 let OAUTH = 'https://oauth.accounts.firefox.com/v1';
@@ -124,10 +132,54 @@ function hawkHeader(method, url, id, key, body, ts = now(), nonce = crypto.rando
 // never dropped by an older writer on its way through.
 // `checked`: by site (firefox.com, mozilla.org), when its browser check was last put to the person in
 // the app's window — from then on that site's calls go by that window's browser (see call()).
-const EMPTY = () => ({ accounts: [], servers: null, serversAt: 0, pings: {}, checked: {}, exitSeen: {}, http1: false });
+const DEFAULT_PREFS = Object.freeze({
+    country: 'fastest',
+    coverage: 'system',
+    accountId: '',
+    autoReconnect: true,
+    autoStart: true,
+});
+
+function normalizePrefs(raw, fallback = DEFAULT_PREFS) {
+    const src = raw && typeof raw === 'object' ? raw : {};
+    const base = fallback && typeof fallback === 'object' ? fallback : DEFAULT_PREFS;
+
+    let country = base.country || DEFAULT_PREFS.country;
+    if (src.country !== undefined) {
+        const c = String(src.country || '').trim();
+        if (/^fastest$/i.test(c)) country = 'fastest';
+        else if (/^[a-zA-Z]{2}$/.test(c)) country = c.toUpperCase();
+    }
+
+    let coverage = base.coverage || DEFAULT_PREFS.coverage;
+    if (src.coverage !== undefined) {
+        const cov = String(src.coverage || '').trim().toLowerCase();
+        if (['proxy', 'system', 'tunnel'].includes(cov)) coverage = cov;
+    }
+
+    let accountId = base.accountId != null ? base.accountId : DEFAULT_PREFS.accountId;
+    if (src.accountId !== undefined || src.account !== undefined) {
+        const rawAcc = src.accountId !== undefined ? src.accountId : src.account;
+        const a = String(rawAcc || '').trim().toLowerCase();
+        if (a === '') accountId = '';
+        else if (/^[0-9a-f]{10,64}$/.test(a)) accountId = a;
+    }
+
+    const autoReconnect = typeof src.autoReconnect === 'boolean'
+        ? src.autoReconnect
+        : (typeof base.autoReconnect === 'boolean' ? base.autoReconnect : DEFAULT_PREFS.autoReconnect);
+
+    const autoStart = typeof src.autoStart === 'boolean'
+        ? src.autoStart
+        : (typeof base.autoStart === 'boolean' ? base.autoStart : DEFAULT_PREFS.autoStart);
+
+    return { country, coverage, accountId, autoReconnect, autoStart };
+}
+
+const EMPTY = () => ({ accounts: [], servers: null, serversAt: 0, pings: {}, checked: {}, exitSeen: {}, http1: false, prefs: Object.assign({}, DEFAULT_PREFS) });
 function load() {
     try {
-        let filePath = FILE;
+        let filePath = getDataFile();
         if (!fs.existsSync(filePath)) {
             const legacyPath = path.join(getStorageDir(), 'fenix.json');
             if (fs.existsSync(legacyPath)) filePath = legacyPath;
@@ -137,10 +189,19 @@ function load() {
         if (!s.pings || typeof s.pings !== 'object') s.pings = {};
         if (!s.checked || typeof s.checked !== 'object') s.checked = {};
         if (!s.exitSeen || typeof s.exitSeen !== 'object') s.exitSeen = {};
+        s.prefs = normalizePrefs(s.prefs, DEFAULT_PREFS);
         return s;
     } catch (e) { return EMPTY(); }
 }
-function save(s) { fs.mkdirSync(path.dirname(FILE), { recursive: true }); fs.writeFileSync(FILE + '.tmp', JSON.stringify(s, null, 2)); fs.renameSync(FILE + '.tmp', FILE); return s; }
+function save(s) { const target = getDataFile(); fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target + '.tmp', JSON.stringify(s, null, 2)); fs.renameSync(target + '.tmp', target); return s; }
+function getPrefs() { return normalizePrefs(load().prefs, DEFAULT_PREFS); }
+function setPrefs(patch = {}) {
+    const s = load();
+    const updated = normalizePrefs(patch, normalizePrefs(s.prefs, DEFAULT_PREFS));
+    s.prefs = updated;
+    save(s);
+    return updated;
+}
 /**
  * %APPDATA%/baba-tunnel/bbt.log: which of Mozilla's endpoints answered what, and through whom (Node, the
  * browser, Mozilla's page) — the record a «it asks for the check again» report is read from. Hosts,
@@ -1364,6 +1425,7 @@ function status() {
         // session taken from Mozilla's page has no code step.
         pending: pending && !pending.web ? { email: pending.email } : null,
         minLeft: MIN_LEFT_BYTES,
+        prefs: normalizePrefs(s.prefs, DEFAULT_PREFS),
     };
 }
 
@@ -1371,6 +1433,7 @@ module.exports = {
     authPw, hkdf, hawkCredentials, hawkHeader, claims, parseServers, config, outbound, exhausted, siteOf,
     signIn, verifyCode, cancelSignIn, signInWithSession, accessToken, pass, pickAccount, refreshQuotas, servers, pingAll, handshakeMs,
     findTarget, prepare, setHttp1, noteExit, challenge, signOut, status, BbtError, FenixError, FILE, MIN_LEFT_BYTES, READ_PAGE_JS,
+    DEFAULT_PREFS, normalizePrefs, getPrefs, setPrefs,
     checkPage, settle, pageWork, pageHasWork, checkWindow, REFRESH_URLS, PAGE_REFRESH_URLS, LOG_FILE, sanitizeLog,
     solver, WEBCHANNEL_HOOK_JS, WEBCHANNEL_LOGIN_URL,
     isAllowedMozillaUrl, isAllowedMozillaHost,

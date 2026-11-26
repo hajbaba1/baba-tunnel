@@ -65,6 +65,7 @@
     // ── State ──────────────────────────────────────────────────────────────
     const st = {
         data: null,            // last GET /api/bbt response
+        prefs: null,           // hydrated from backend bbt.json / window.__BBT_INITIAL_PREFS__
         busy: '',              // in-flight action: 'connect' | 'stop' | 'web' | 'challenge' | 'quota' | 'signout'
         connecting: false,
         stopping: false,
@@ -83,25 +84,79 @@
 
     const PREF = 'bbt_prefs';
     const store = () => window.PersistentStorage || localStorage;
-    function prefs() {
+    let prefsEpoch = 0;
+    let prefsInFlight = 0;
+
+    function normalizeClientPrefs(p) {
+        const src = p && typeof p === 'object' ? p : {};
+        const rawCountry = String(src.country || '').trim();
+        const country = /^fastest$/i.test(rawCountry)
+            ? 'fastest'
+            : (/^[a-zA-Z]{2}$/.test(rawCountry) ? rawCountry.toUpperCase() : 'fastest');
+        const cov = String(src.coverage || '').trim().toLowerCase();
+        const coverage = ['proxy', 'system', 'tunnel'].includes(cov) ? cov : 'system';
+        const rawAcc = String(src.accountId || src.account || '').trim().toLowerCase();
+        const account = /^[0-9a-f]{10,64}$/.test(rawAcc) ? rawAcc : '';
+        return {
+            country,
+            coverage,
+            account,
+            accountId: account,
+            autoReconnect: src.autoReconnect !== undefined ? !!src.autoReconnect : true,
+            autoStart: src.autoStart !== undefined ? !!src.autoStart : true,
+        };
+    }
+
+    function initClientPrefs() {
+        if (window.__BBT_INITIAL_PREFS__ && typeof window.__BBT_INITIAL_PREFS__ === 'object') {
+            st.prefs = normalizeClientPrefs(window.__BBT_INITIAL_PREFS__);
+            try {
+                store().setItem(PREF, JSON.stringify(st.prefs));
+                store().setItem('fenix_prefs', JSON.stringify(st.prefs));
+            } catch (e) {}
+            return st.prefs;
+        }
         let p = {};
         try {
             const raw = store().getItem(PREF) || store().getItem('fenix_prefs') || '{}';
             p = JSON.parse(raw) || {};
         } catch (e) { p = {}; }
-        const coverage = ['proxy', 'system', 'tunnel'].includes(p.coverage) ? p.coverage : 'system';
-        return {
-            country: /^[A-Z]{2}$/.test(p.country || '') ? p.country : 'fastest',
-            account: /^[0-9a-f]{10}$/.test(p.account || '') ? p.account : '',
-            coverage,
-        };
+        st.prefs = normalizeClientPrefs(p);
+        return st.prefs;
     }
-    function setPrefs(patch) {
+
+    function prefs() {
+        return st.prefs || initClientPrefs();
+    }
+
+    function setPrefs(patch, { syncBackend = true } = {}) {
+        const merged = normalizeClientPrefs(Object.assign({}, prefs(), patch));
+        st.prefs = merged;
+        prefsEpoch++;
         try {
-            const merged = Object.assign({}, prefs(), patch);
             store().setItem(PREF, JSON.stringify(merged));
             store().setItem('fenix_prefs', JSON.stringify(merged));
         } catch (e) {}
+        if (syncBackend && patch && typeof patch === 'object') {
+            const backendPatch = {};
+            if (patch.country !== undefined) backendPatch.country = merged.country;
+            if (patch.coverage !== undefined) backendPatch.coverage = merged.coverage;
+            if (patch.account !== undefined || patch.accountId !== undefined) backendPatch.accountId = merged.accountId;
+            if (patch.autoReconnect !== undefined) backendPatch.autoReconnect = merged.autoReconnect;
+            if (patch.autoStart !== undefined) backendPatch.autoStart = merged.autoStart;
+            if (Object.keys(backendPatch).length > 0) {
+                prefsInFlight++;
+                return api('bbt/prefs', backendPatch)
+                    .then((r) => {
+                        if (r && r.prefs && st.data) st.data.prefs = r.prefs;
+                    })
+                    .catch(() => {})
+                    .finally(() => {
+                        prefsInFlight = Math.max(0, prefsInFlight - 1);
+                    });
+            }
+        }
+        return Promise.resolve();
     }
 
     const D = () => st.data || {};
@@ -144,9 +199,17 @@
 
     // ── Actions ────────────────────────────────────────────────────────────
     async function refresh(force) {
+        const startEpoch = prefsEpoch;
         try {
             const d = await api('bbt');
             st.data = d;
+            if (d && d.prefs && prefsEpoch === startEpoch && prefsInFlight === 0) {
+                st.prefs = normalizeClientPrefs(d.prefs);
+                try {
+                    store().setItem(PREF, JSON.stringify(st.prefs));
+                    store().setItem('fenix_prefs', JSON.stringify(st.prefs));
+                } catch (e) {}
+            }
             // auto-trigger server fetch on first load
             if (!st.data.servers && !st.busy) {
                 api('bbt/servers', { force: true }).catch(() => {});
@@ -383,10 +446,34 @@
     async function toggleAutoReconnect(enabled) {
         try {
             await api('bbt/autoreconnect', { enabled });
+            setPrefs({ autoReconnect: !!enabled }, { syncBackend: false });
             log(enabled ? '🔄 اتصال مجدد خودکار فعال شد.' : 'اتصال مجدد خودکار غیرفعال شد.');
             await refresh();
         } catch (e) {
             log(`✗ خطا در تغییر وضعیت اتصال مجدد: ${e.message}`);
+        }
+    }
+
+    async function toggleAutoStart(enabled) {
+        const autoStartToggle = $('fnx-autostart-toggle');
+        try {
+            const res = await api('bbt/autostart', { enabled: !!enabled });
+            if (st.data) {
+                st.data.autoStart = res;
+                if (res && res.prefs) st.data.prefs = res.prefs;
+            }
+            setPrefs({ autoStart: !!enabled }, { syncBackend: false });
+            log(enabled
+                ? '🚀 اجرای خودکار در استارتاپ ویندوز (با دسترسی ادمین) فعال شد.'
+                : 'اجرای خودکار در استارتاپ ویندوز غیرفعال شد.');
+            paint();
+            if (window.toast) {
+                window.toast(enabled ? 'اجرای خودکار ویندوز فعال شد.' : 'اجرای خودکار ویندوز غیرفعال شد.');
+            }
+        } catch (e) {
+            if (autoStartToggle) autoStartToggle.checked = !enabled;
+            log(`✗ خطا در تنظیم اجرای خودکار: ${e.message}`);
+            if (window.toast) window.toast(e.message);
         }
     }
 
@@ -443,6 +530,16 @@
         });
         if (tab === 'accounts') renderDrawerAccounts();
         if (tab === 'log') renderLog();
+        if (tab === 'advanced') {
+            renderKillSwitchBanner();
+            api('bbt/autostart').then((res) => {
+                if (res && st.data) {
+                    st.data.autoStart = res;
+                    if (typeof res.isAdmin === 'boolean') st.data.isAdmin = res.isAdmin;
+                    renderKillSwitchBanner();
+                }
+            }).catch(() => {});
+        }
     }
 
     // ── Rendering ──────────────────────────────────────────────────────────
@@ -471,7 +568,17 @@
         }
         const autoToggle = $('fnx-autoreconnect-toggle');
         if (autoToggle) {
-            autoToggle.checked = (session().autoReconnect !== undefined) ? !!session().autoReconnect : true;
+            autoToggle.checked = (session().autoReconnect !== undefined) ? !!session().autoReconnect : (prefs().autoReconnect !== false);
+        }
+        const autoStartToggle = $('fnx-autostart-toggle');
+        if (autoStartToggle) {
+            autoStartToggle.checked = prefs().autoStart !== false;
+        }
+        const adminBadge = $('fnx-admin-badge');
+        if (adminBadge && st.data) {
+            const isAdmin = Boolean(st.data.isAdmin || (st.data.autoStart && st.data.autoStart.isAdmin));
+            adminBadge.textContent = isAdmin ? 'فعال (Administrator) ✓' : 'محدود (Standard User)';
+            adminBadge.style.color = isAdmin ? 'var(--fnx-success)' : 'var(--fnx-warning)';
         }
     }
 
@@ -973,6 +1080,29 @@
             </div>
           </div>
 
+          <!-- Windows Auto-Start (Administrator) Card -->
+          <div class="fnx-sub-card">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+              <div>
+                <div class="fnx-sub-title" style="margin-bottom:3px;display:flex;align-items:center;gap:6px;">
+                  <i class="ph-fill ph-rocket-launch" style="color:var(--fnx-flame-1);font-size:16px;"></i>
+                  اجرای خودکار در استارتاپ ویندوز
+                </div>
+                <div style="font-size:11.5px;color:var(--fnx-text-2);line-height:1.5;">
+                  اجرای خودکار برنامه هنگام بالا آمدن ویندوز با دسترسی ادمین
+                </div>
+              </div>
+              <label class="fnx-switch">
+                <input type="checkbox" id="fnx-autostart-toggle" checked />
+                <span class="fnx-slider"></span>
+              </label>
+            </div>
+            <div style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.05);display:flex;align-items:center;justify-content:space-between;font-size:11px;color:var(--fnx-text-3);">
+              <span>وضعیت دسترسی ادمین (Administrator):</span>
+              <strong id="fnx-admin-badge" style="color:var(--fnx-text-2);">در حال بررسی…</strong>
+            </div>
+          </div>
+
           <div class="fnx-sub-card">
             <div class="fnx-sub-title">پورت‌های محلی Xray:</div>
             <div class="fnx-sub-line">
@@ -1004,7 +1134,7 @@
         <!-- About Pane -->
         <div class="fnx-dpane" id="fnx-dpane-about">
           <div class="fnx-sub-card" style="line-height:1.8;font-size:12px;">
-            <p style="font-weight:700; font-size:14px; margin-bottom:2px; color:var(--fnx-text-1);">BABA Tunnel v1.0.1 (BBT)</p>
+            <p style="font-weight:700; font-size:14px; margin-bottom:2px; color:var(--fnx-text-1);">BABA Tunnel v1.0.2 (BBT)</p>
             <p style="font-size:12px; margin-bottom:10px; color:var(--fnx-text-2);">
               طراحی و توسعه : <a href="https://github.com/hajbaba1" target="_blank" rel="noopener noreferrer" style="color:var(--fnx-flame-1); font-weight:700; text-decoration:none; cursor:pointer;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'" title="مشاهده گیت‌هاب Hajbaba">Hajbaba</a>
             </p>
@@ -1082,6 +1212,12 @@
         const autoReconnectToggle = $('fnx-autoreconnect-toggle');
         if (autoReconnectToggle) {
             autoReconnectToggle.onchange = (e) => toggleAutoReconnect(e.target.checked);
+        }
+
+        // Auto-start (Windows Admin Startup) toggle
+        const autoStartToggle = $('fnx-autostart-toggle');
+        if (autoStartToggle) {
+            autoStartToggle.onchange = (e) => toggleAutoStart(e.target.checked);
         }
 
         // Kill Switch quick disable button
@@ -1215,8 +1351,10 @@
         const root = $('ls-bbt') || $('ls-fenix');
         if (!root || built) return;
         built = true;
+        initClientPrefs();
         root.innerHTML = template();
         bindEvents();
+        paint();
     }
 
     window.initBbtModule = () => {
